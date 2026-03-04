@@ -7,6 +7,8 @@ import './manager.css';
 export default function Page() {
   const apiRef = useRef(null);
   const { t, isReady } = useTranslation();
+  const managerTitle = t('manager.title');
+  const managerTitleRest = managerTitle.replace(/^IKG\s*/i, '');
 
   useEffect(() => {
     let active = true;
@@ -40,7 +42,9 @@ export default function Page() {
         <header className="top-bar">
           <div className="title-wrap">
             <div className="title">
-              <span>FiftyOne</span> Manager
+              <img src="/ikg-logo.svg" alt="IKG logo" className="title-logo" />
+              <span className="title-highlight">IKG</span>
+              <span className="title-text">{managerTitleRest ? ` ${managerTitleRest}` : ''}</span>
             </div>
             <div className="subtitle">{t('manager.subtitle')}</div>
           </div>

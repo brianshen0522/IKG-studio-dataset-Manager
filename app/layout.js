@@ -2,7 +2,7 @@ import HelpButton from './_components/HelpButton';
 import ClientProviders from './_components/ClientProviders';
 
 export const metadata = {
-  title: 'FiftyOne Manager'
+  title: 'IKG sudio dataset Manager'
 };
 
 export default function RootLayout({ children }) {

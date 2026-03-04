@@ -1,4 +1,4 @@
-# FiftyOne Manager 使用手冊
+# IKG sudio dataset Manager 使用手冊
 
 > 資料集管理與標籤編輯簡明指南
 
@@ -14,7 +14,7 @@
 
 ## 系統介紹
 
-FiftyOne Manager 提供以下功能：
+IKG sudio dataset Manager 提供以下功能：
 
 - **管理多個 FiftyOne 實例** - 同時開啟多個資料集
 - **瀏覽和檢視資料集** - 視覺化圖片和標註
@@ -360,7 +360,7 @@ FiftyOne 會顯示一個訊息框，包含編輯器 URL 和圖片資訊。請複
 ### 儲存後沒有更新
 
 - FiftyOne 不會自動更新標籤檔，修改後沒有立即反映是正常的
-- 回到 FiftyOne Manager 點擊 **Restart** 重新啟動該實例，再重新開啟 FiftyOne
+- 回到 IKG sudio dataset Manager 點擊 **Restart** 重新啟動該實例，再重新開啟 FiftyOne
 
 ### 復原重複圖片
 

@@ -24,7 +24,7 @@ function ChineseContent() {
         <div className={styles.main}>
       <section>
         <h3 id="manager-intro">系統介紹</h3>
-        <p>FiftyOne Manager 提供以下功能：</p>
+        <p>IKG sudio dataset Manager 提供以下功能：</p>
         <ul>
           <li><strong>管理多個 FiftyOne 實例</strong> - 同時開啟多個資料集</li>
           <li><strong>瀏覽和檢視資料集</strong> - 視覺化圖片和標註</li>
@@ -237,7 +237,7 @@ function EnglishContent() {
         <div className={styles.main}>
       <section>
         <h3 id="manager-intro">System Overview</h3>
-        <p>FiftyOne Manager provides the following features:</p>
+        <p>IKG sudio dataset Manager provides the following features:</p>
         <ul>
           <li><strong>Manage multiple FiftyOne instances</strong> - Open multiple datasets simultaneously</li>
           <li><strong>Browse and view datasets</strong> - Visualize images and annotations</li>

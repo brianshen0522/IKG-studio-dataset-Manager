@@ -1,4 +1,4 @@
-# FiftyOne Manager
+# IKG sudio dataset Manager
 
 A web-based manager for running multiple FiftyOne instances with YOLO dataset support and IoU-based duplicate detection.
 

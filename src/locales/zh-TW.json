@@ -31,7 +31,7 @@
     "status": "狀態"
   },
   "manager": {
-    "title": "FiftyOne Manager",
+    "title": "IKG sudio dataset Manager",
     "subtitle": "資料集管理器",
     "addInstance": "新增實例",
     "startSelected": "啟動選取",
@@ -298,7 +298,7 @@
   },
   "help": {
     "editorTitle": "標籤編輯器使用說明",
-    "managerTitle": "FiftyOne Manager 使用說明"
+    "managerTitle": "IKG sudio dataset Manager 使用說明"
   },
   "language": {
     "zhTW": "繁中",
