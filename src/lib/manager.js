@@ -1,7 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import http from 'http';
-import os from 'os';
 import { exec, execFile } from 'child_process';
 import util from 'util';
 
@@ -37,9 +35,8 @@ export const CONFIG = {
   publicAddress: process.env.PUBLIC_ADDRESS || 'localhost',
   defaultIouThreshold: parseFloat(process.env.DEFAULT_IOU_THRESHOLD || '0.8'),
   defaultDebug: process.env.DEFAULT_DEBUG_MODE === 'true',
-  healthCheckInterval: parseInt(process.env.HEALTH_CHECK_INTERVAL || '5000', 10),
-  healthCheckTimeout: parseInt(process.env.HEALTH_CHECK_TIMEOUT || '3000', 10),
   labelEditorPreloadCount: Math.max(0, parseInt(process.env.LABEL_EDITOR_PRELOAD_COUNT || '20', 10)),
+  viewerImageLoadingBatchCount: Math.max(1, parseInt(process.env.VIEWER_IMAGE_LOADING_BATCH_COUNT || '200', 10)),
   availableObbModes: (process.env.AVAILABLE_OBB_MODES || 'rectangle,4point')
     .split(',')
     .map((mode) => mode.trim())
@@ -95,11 +92,6 @@ export function validateInstanceNameFormat(name) {
   return typeof name === 'string' && /^[A-Za-z0-9_-]+$/.test(name);
 }
 
-export function getInstanceDbName(instance) {
-  const datasetName = path.basename(instance.datasetPath || '');
-  return `${datasetName || 'datasets'}_${instance.port}`;
-}
-
 export function resolveImagePath(instance, relativeLabelPath, fullLabelPath) {
   const basePath = instance.datasetPath;
   let relativePath = relativeLabelPath;
@@ -121,50 +113,6 @@ export function resolveImagePath(instance, relativeLabelPath, fullLabelPath) {
   return '';
 }
 
-export function triggerLabelSync(instance, imagePath, labelPath) {
-  if (!instance || !imagePath || !labelPath) {
-    return;
-  }
-  if (process.env.LABEL_SYNC_DISABLED === 'true') {
-    return;
-  }
-
-  const pythonPath = getPythonBin();
-  const scriptPath = path.join(process.cwd(), 'sync_label.py');
-  const datasetName = getInstanceDbName(instance);
-  const env = {
-    ...process.env,
-    FIFTYONE_DATABASE_URI: process.env.FIFTYONE_DATABASE_URI || 'mongodb://mongodb:27017',
-    FIFTYONE_DATABASE_NAME: datasetName
-  };
-
-  const args = [
-    scriptPath,
-    '--dataset-name',
-    datasetName,
-    '--image-path',
-    imagePath,
-    '--label-path',
-    labelPath
-  ];
-  if (instance.classFile) {
-    args.push('--class-file', instance.classFile);
-  }
-
-  execFile(pythonPath, args, { env }, (err, stdout, stderr) => {
-    if (err) {
-      console.warn(`Label sync skipped: ${err.message}`);
-      if (process.env.LABEL_SYNC_VERBOSE === 'true' && stderr) {
-        console.warn(stderr.toString());
-      }
-      return;
-    }
-    if (process.env.LABEL_SYNC_VERBOSE === 'true' && stdout) {
-      console.log(stdout.toString().trim());
-    }
-  });
-}
-
 export function getPythonBin() {
   const explicit = process.env.PYTHON_BIN || process.env.FIFTYONE_PYTHON;
   if (explicit && fs.existsSync(explicit)) {
@@ -175,42 +123,6 @@ export function getPythonBin() {
     return venvPython;
   }
   return 'python3';
-}
-
-export async function checkServiceHealth(port) {
-  return new Promise((resolve) => {
-    const req = http.get(
-      {
-        hostname: 'localhost',
-        port,
-        path: '/',
-        timeout: CONFIG.healthCheckTimeout
-      },
-      (res) => {
-        const isHealthy = res.statusCode >= 200 && res.statusCode < 300;
-        resolve({
-          healthy: isHealthy,
-          statusCode: res.statusCode
-        });
-        res.resume();
-      }
-    );
-
-    req.on('error', (err) => {
-      resolve({
-        healthy: false,
-        error: err.message
-      });
-    });
-
-    req.on('timeout', () => {
-      req.destroy();
-      resolve({
-        healthy: false,
-        error: 'Timeout'
-      });
-    });
-  });
 }
 
 export function findDatasetFolders(baseDir, currentPath = '', maxDepth = 5, currentDepth = 0) {
@@ -512,11 +424,4 @@ export async function checkDatasetFormat(datasetPath) {
   }
 
   return { format: 'unknown', reason: 'All label files are empty' };
-}
-
-export function getPm2LogInfo(name) {
-  const pm2LogDir = path.join(os.homedir(), '.pm2', 'logs');
-  const pm2LogName = name.replace(/_/g, '-');
-  const outLogPath = path.join(pm2LogDir, `${pm2LogName}-out.log`);
-  return { pm2LogDir, pm2LogName, outLogPath };
 }

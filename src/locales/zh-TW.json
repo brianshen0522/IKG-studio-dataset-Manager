@@ -32,7 +32,7 @@
   },
   "manager": {
     "title": "FiftyOne Manager",
-    "subtitle": "狀態每 5 秒更新",
+    "subtitle": "資料集管理器",
     "addInstance": "新增實例",
     "startSelected": "啟動選取",
     "stopSelected": "停止選取",
@@ -41,7 +41,7 @@
     "basePath": "基礎路徑",
     "ports": "埠號範圍",
     "noInstances": "尚無實例",
-    "noInstancesHint": "點擊「新增實例」建立您的第一個 FiftyOne 實例",
+    "noInstancesHint": "點擊「新增實例」建立您的第一個實例",
     "openEditor": "開啟編輯器",
     "logs": "日誌",
     "instanceLogs": "實例日誌",
@@ -126,7 +126,8 @@
       "datasetPathMustBeInBase": "資料集路徑必須在配置的基礎路徑內",
       "datasetFolderRequired": "需要資料集資料夾才能開啟標籤編輯器",
       "configNotLoaded": "配置尚未載入，請再試一次",
-      "portOutOfRange": "埠號必須在 {start} 和 {end} 之間"
+      "portOutOfRange": "埠號必須在 {start} 和 {end} 之間",
+      "failedToFindDuplicates": "尋找重複失敗"
     },
     "confirm": {
       "deleteInstance": "確定要刪除實例「{name}」嗎？",
@@ -147,10 +148,17 @@
     },
     "processing": {
       "starting": "正在啟動 {name}...",
-      "stopping": "正在停止 {name}..."
+      "stopping": "正在停止 {name}...",
+      "findingDuplicates": "正在尋找 {name} 中的重複項目..."
     },
     "logsTitle": "日誌：{name}",
-    "instanceFallback": "實例"
+    "instanceFallback": "實例",
+    "openViewer": "開啟檢視器",
+    "findDuplicates": "尋找重複",
+    "duplicates": {
+      "noneFound": "未找到重複項目",
+      "found": "找到 {count} 個重複群組。動作：{action}"
+    }
   },
   "editor": {
     "title": "YOLO 標籤編輯器",
@@ -222,6 +230,7 @@
       "selectAll": "全選",
       "deselectAll": "取消全選",
       "deleteSelected": "刪除選取（{count}）",
+      "openEditorSelected": "開啟編輯器（{count}）",
       "confirmDelete": "刪除 {count} 張圖片及其標籤？此操作無法復原。",
       "deleting": "正在刪除 {count} 張圖片...",
       "deleted": "已刪除 {count} 張圖片",
@@ -295,5 +304,22 @@
     "zhTW": "繁中",
     "en": "EN",
     "switchTo": "切換語言"
+  },
+  "viewer": {
+    "dataset": "資料集檢視器",
+    "openEditor": "開啟編輯器",
+    "findDuplicates": "尋找重複",
+    "findDuplicatesConfirm": "是否對「{name}」執行重複偵測？重複項目將依實例的重複模式處理。",
+    "noClasses": "未找到類別",
+    "errors": {
+      "noInstanceOrPath": "未指定實例或資料集路徑",
+      "loadConfigFailed": "載入實例設定失敗",
+      "loadFailed": "載入資料集失敗"
+    },
+    "status": {
+      "loadingImages": "載入圖片清單...",
+      "loadingLabels": "載入標籤...",
+      "loadingThumbnails": "載入縮圖..."
+    }
   }
 }

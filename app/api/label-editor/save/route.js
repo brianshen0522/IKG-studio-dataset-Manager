@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { resolveImagePath, triggerLabelSync } from '@/lib/manager';
-import { findInstanceForLabel } from '@/lib/db';
 import { withApiLogging } from '@/lib/api-logger';
 
 export const dynamic = 'force-dynamic';
@@ -27,22 +25,6 @@ export const POST = withApiLogging(async (req) => {
     }
 
     fs.writeFileSync(fullLabelPath, content || '', 'utf-8');
-
-    const instance = await findInstanceForLabel({ basePath, fullLabelPath });
-    if (instance && instance.autoSync) {
-      let relativePath = relativeLabelPath
-        ? relativeLabelPath.replace(/\\/g, '/')
-        : path.relative(instance.datasetPath, fullLabelPath).replace(/\\/g, '/');
-      if (relativePath && !relativePath.startsWith('labels/') && fullLabelPath) {
-        relativePath = path.relative(instance.datasetPath, fullLabelPath).replace(/\\/g, '/');
-      }
-      const imagePath = resolveImagePath(instance, relativePath, fullLabelPath);
-      if (imagePath) {
-        triggerLabelSync(instance, imagePath, fullLabelPath);
-      } else {
-        console.warn('Label sync skipped: image path not found for', fullLabelPath);
-      }
-    }
 
     return NextResponse.json({ success: true, message: 'Labels saved successfully' });
   } catch (err) {

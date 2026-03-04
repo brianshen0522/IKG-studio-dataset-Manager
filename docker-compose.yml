@@ -1,16 +1,4 @@
 services:
-  mongodb:
-    image: mongo:7
-    container_name: fiftyone-mongodb
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb-data:/data/db
-    environment:
-      - MONGO_INITDB_DATABASE=fiftyone
-    restart: unless-stopped
-    command: mongod --quiet
-
   postgres:
     image: postgres:16
     container_name: fiftyone-postgres
@@ -36,7 +24,6 @@ services:
           cpus: '1'
           memory: 2G
     depends_on:
-      - mongodb
       - postgres
     ports:
       - "${MANAGER_PORT:-3000}:${MANAGER_PORT:-3000}"
@@ -54,7 +41,6 @@ services:
       - DEFAULT_IOU_THRESHOLD=${DEFAULT_IOU_THRESHOLD:-0.8}
       - DEFAULT_DEBUG_MODE=${DEFAULT_DEBUG_MODE:-false}
       - LABEL_EDITOR_PRELOAD_COUNT=${LABEL_EDITOR_PRELOAD_COUNT:-25}
-      - FIFTYONE_DATABASE_URI=mongodb://mongodb:27017
       - DATABASE_URL=postgresql://fiftyone:fiftyone@postgres:5432/fiftyone_manager
       - AVAILABLE_OBB_MODES=${AVAILABLE_OBB_MODES:-rectangle,4point}
       - DUPLICATE_RULES=${DUPLICATE_RULES:-}
@@ -64,4 +50,3 @@ services:
 
 volumes:
   pm2-logs:
-  mongodb-data:

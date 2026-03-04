@@ -46,22 +46,6 @@ export default function Page() {
           </div>
           <div className="top-actions" data-tour="bulk-actions">
             <button
-              id="startSelectedBtn"
-              className="btn success"
-              onClick={() => callApi('startSelectedInstances')}
-              disabled
-            >
-              {t('manager.startSelected')}
-            </button>
-            <button
-              id="stopSelectedBtn"
-              className="btn danger"
-              onClick={() => callApi('stopSelectedInstances')}
-              disabled
-            >
-              {t('manager.stopSelected')}
-            </button>
-            <button
               id="removeSelectedBtn"
               className="btn danger"
               onClick={() => callApi('removeSelectedInstances')}
@@ -90,8 +74,7 @@ export default function Page() {
             />
             {t('manager.instances')}
             <small>
-              {t('manager.basePath')}: <span id="basePath">-</span> · {t('manager.ports')}:{' '}
-              <span id="portRange">-</span>
+              {t('manager.basePath')}: <span id="basePath">-</span>
             </small>
           </div>
           <div id="instancesContainer" className="instances" data-tour="instances-list">
@@ -124,25 +107,6 @@ export default function Page() {
               >
                 {t('manager.modal.instanceNameExists')}
               </div>
-            </div>
-            <div className="form-group" data-tour="form-port">
-              <label htmlFor="selectedPortDisplay">{t('manager.modal.selectedPort')} *</label>
-              <input
-                type="text"
-                id="selectedPortDisplay"
-                readOnly
-                placeholder={t('manager.modal.selectPortPlaceholder')}
-                style={{ marginBottom: '8px' }}
-              />
-              <label htmlFor="instancePort" style={{ fontSize: '13px', color: 'var(--subtle)' }}>
-                {t('manager.modal.availablePorts')}
-              </label>
-              <select id="instancePort" size={5} required onChange={() => callApi('updateSelectedPortDisplay')}>
-                <option value="">{t('common.loading')}</option>
-              </select>
-              <small className="port-hint" id="portHint">
-                {t('manager.modal.portHint')}
-              </small>
             </div>
             <div className="form-group" data-tour="form-dataset">
               <label htmlFor="datasetPath">{t('manager.modal.datasetPath')} *</label>
@@ -209,13 +173,6 @@ export default function Page() {
             </div>
             <div className="form-group">
               <div className="checkbox-group">
-                <input type="checkbox" id="autoSync" />
-                <label htmlFor="autoSync">{t('manager.modal.autoSyncLabels')}</label>
-              </div>
-              <small>{t('manager.modal.autoSyncLabelsHint')}</small>
-            </div>
-            <div className="form-group">
-              <div className="checkbox-group">
                 <input type="checkbox" id="pentagonFormat" />
                 <label htmlFor="pentagonFormat">{t('manager.modal.obbFormat')}</label>
               </div>
@@ -235,30 +192,6 @@ export default function Page() {
               </button>
             </div>
           </form>
-        </div>
-      </div>
-
-      <div id="logsModal" className="modal">
-        <div className="modal-content">
-          <div className="modal-header">
-            <h2 id="logsTitle">{t('manager.instanceLogs')}</h2>
-            <button className="close-btn" onClick={() => callApi('closeLogsModal')} type="button">
-              &times;
-            </button>
-          </div>
-          <div className="logs-wrapper">
-            <div className="logs-container" id="logsContent">
-              {t('manager.loadingLogs')}
-            </div>
-            <button
-              id="scrollLatestBtn"
-              className="scroll-latest-btn"
-              onClick={() => callApi('scrollToLatest')}
-              type="button"
-            >
-              {t('manager.scrollToLatest')}
-            </button>
-          </div>
         </div>
       </div>
 

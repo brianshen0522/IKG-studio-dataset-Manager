@@ -474,5 +474,86 @@ def main() -> None:
         handle_duplicates(dataset_base, iou_threshold, debug)
 
 
+def cli_main() -> None:
+    """Non-interactive CLI mode for API-driven duplicate detection."""
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Find duplicates in a YOLO dataset")
+    parser.add_argument("--dataset-path", required=True, help="Path to dataset root (must contain images/ and labels/)")
+    parser.add_argument("--iou-threshold", type=float, default=0.8, help="IoU threshold for duplicate detection")
+    parser.add_argument("--output-json", required=True, help="Path to write JSON results")
+    parser.add_argument("--action", default="move", choices=["move", "delete", "skip"], help="Action to take on duplicates")
+    parser.add_argument("--labels-limit", type=int, default=0, help="Number of labels to compare (0 = all)")
+    parser.add_argument("--debug", action="store_true", help="Debug mode (group duplicates into subfolders)")
+
+    args = parser.parse_args()
+
+    dataset_path = args.dataset_path
+    iou_threshold = args.iou_threshold
+    action = args.action
+    labels_limit = args.labels_limit
+    debug = args.debug
+
+    if action == "skip":
+        result = {
+            "duplicateCount": 0,
+            "action": "skip",
+            "groups": [],
+            "skipped": True
+        }
+        with open(args.output_json, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+        return
+
+    img_dir = os.path.join(dataset_path, "images")
+    label_dir = os.path.join(dataset_path, "labels")
+
+    if not os.path.isdir(img_dir) or not os.path.isdir(label_dir):
+        result = {"error": "images/ or labels/ directory not found", "duplicateCount": 0}
+        with open(args.output_json, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+        return
+
+    image_paths = [
+        os.path.join(img_dir, fname)
+        for fname in sorted(os.listdir(img_dir))
+        if fname.lower().endswith((".jpg", ".jpeg", ".png"))
+    ]
+
+    if not image_paths:
+        result = {"duplicateCount": 0, "action": action, "groups": []}
+        with open(args.output_json, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+        return
+
+    groups = find_duplicate_groups(image_paths, iou_threshold, dataset_path, labels_limit)
+
+    duplicate_count = len(groups)
+    group_data = []
+    for group in groups:
+        group_data.append({
+            "keep": image_paths[group[0]],
+            "duplicates": [image_paths[i] for i in group[1:]]
+        })
+
+    if groups:
+        process_duplicates(dataset_path, groups, image_paths, debug, action)
+
+    result = {
+        "duplicateCount": duplicate_count,
+        "action": action,
+        "groups": group_data
+    }
+
+    with open(args.output_json, "w", encoding="utf-8") as f:
+        json.dump(result, f)
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    # If any --arg style arguments are passed, use CLI mode
+    if len(sys.argv) > 1 and any(a.startswith("--") for a in sys.argv[1:]):
+        cli_main()
+    else:
+        main()

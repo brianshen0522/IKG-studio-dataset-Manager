@@ -1,8 +1,0 @@
-name: delete_samples
-version: 1.0.0
-description: Permanently delete selected samples from disk and dataset with logging
-author: FiftyOne User
-fiftyone:
-  version: ">=0.20.0"
-operators:
-  - delete_samples

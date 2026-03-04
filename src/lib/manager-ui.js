@@ -6,15 +6,11 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
         let latestInstances = [];
         let datasets = [];
         let datasetsError = null;
-        let logsIntervalId = null;
-        let activeLogsInstance = null;
-        let followLogs = true;
-        const LOG_POLL_MS = 2000;
-        const SCROLL_THRESHOLD = 40;
         let selectedInstances = new Set();
-        const lastHealthByInstance = new Map();
         let lastEnvRule = null;
         let suppressDuplicateDefault = false;
+        let refreshTimer = null;
+        let initialized = false;
 
         function showProcessing(text = t('common.processing')) {
             const overlay = document.getElementById('processingOverlay');
@@ -68,7 +64,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
                 const response = await fetch(`${API_BASE}/api/config`);
                 config = await response.json();
                 document.getElementById('basePath').textContent = config.datasetBasePath;
-                document.getElementById('portRange').textContent = `${config.portRange.start}-${config.portRange.end}`;
 
                 // Filter OBB mode dropdown based on available modes
                 updateObbModeOptions();
@@ -698,42 +693,11 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
                     }
                 }
 
-                // Auto-open when service goes from down -> up
-                instances.forEach(instance => {
-                    const name = instance.name || '';
-                    const health = (instance.serviceHealth || '').toLowerCase();
-                    const prevHealth = lastHealthByInstance.get(name);
-                    if (instance.status === 'online' && health === 'healthy' && prevHealth === 'unhealthy') {
-                        openInstance(instance.port);
-                    }
-                    lastHealthByInstance.set(name, health || 'n/a');
-                });
-
-                for (const name of Array.from(lastHealthByInstance.keys())) {
-                    if (!instanceNames.has(name)) {
-                        lastHealthByInstance.delete(name);
-                    }
-                }
-
                 renderInstances(instances);
                 updateSelectionButtons();
             } catch (err) {
                 console.error('Failed to load instances:', err);
             }
-        }
-
-        function statusMeta(instance) {
-            const status = (instance.status || 'unknown').toLowerCase();
-            if (status === 'online') return { cls: 'status-online', text: t('manager.status.running') };
-            if (status === 'stopped') return { cls: 'status-stopped', text: t('manager.status.notRunning') };
-            return { cls: 'status-unknown', text: t('manager.status.unknown') };
-        }
-
-        function healthMeta(instance) {
-            const health = (instance.serviceHealth || 'n/a').toLowerCase();
-            if (health === 'healthy') return { cls: 'health-healthy', text: t('manager.status.serviceOk') };
-            if (health === 'unhealthy') return { cls: 'health-unhealthy', text: t('manager.status.serviceDown') };
-            return { cls: 'health-na', text: t('manager.status.na') };
         }
 
         function renderInstances(instances) {
@@ -756,10 +720,7 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             }
 
             container.innerHTML = instances.map(instance => {
-                const meta = statusMeta(instance);
-                const health = healthMeta(instance);
-                const hasError = instance.status && instance.status.toLowerCase() === 'error';
-                const serviceDown = (instance.serviceHealth || '').toLowerCase() === 'unhealthy';
+                const disabled = instance.datasetPath ? '' : `disabled title="${t('manager.hint.datasetPathRequired')}"`;
                 return `
                 <div class="instance-card">
                     <div class="instance-header">
@@ -770,102 +731,31 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
                                    onchange="toggleInstanceSelection('${instance.name}')"
                                    ${selectedInstances.has(instance.name) ? 'checked' : ''}>
                             <span>${instance.name || t('manager.instanceFallback')}</span>
-                        </div>
-                        <div class="status-group">
-                            <div class="status-pill ${hasError ? 'status-error' : meta.cls}">
-                                <span class="dot"></span>
-                                <span>${hasError ? t('manager.status.error') : meta.text}</span>
-                            </div>
-                            ${instance.status === 'online' ? `
-                            <div class="status-pill ${health.cls}">
-                                <span class="dot"></span>
-                                <span>${health.text}</span>
-                            </div>
-                            ` : ''}
+                            ${instance.obbMode ? `<span style="font-size:10px;padding:2px 7px;background:rgba(99,153,255,0.12);border:1px solid rgba(99,153,255,0.3);border-radius:99px;color:#6399ff;font-weight:600;letter-spacing:0.3px;white-space:nowrap">${instance.obbMode}</span>` : ''}
                         </div>
                     </div>
 
-                    ${hasError ? `<div class="status-message">${t('manager.hint.lastErrorReported')}</div>` : ''}
-
                     <div class="instance-grid">
-                        <div class="field">
-                            <label>${t('common.name')}</label>
-                            <input type="text" value="${instance.name || ''}" readonly>
-                        </div>
-                        <div class="field">
-                            <label>${t('common.port')}</label>
-                            <input type="text" value="${instance.port || ''}" readonly>
-                        </div>
                         <div class="field" style="grid-column: span 2;">
                             <label>${t('manager.modal.datasetPath')}</label>
                             <input type="text" value="${instance.datasetPath || ''}" readonly>
                         </div>
+                        ${instance.classFile ? `
+                        <div class="field">
+                            <label>${t('manager.modal.classFile')}</label>
+                            <input type="text" value="${instance.classFile}" readonly>
+                        </div>` : ''}
                     </div>
-                    <div class="hint">${t('manager.hint.mustBeInsideBasePath')}</div>
                     <div class="instance-actions">
-                        ${instance.status === 'online'
-                            ? `<button class="btn secondary" onclick="restartInstance('${instance.name}')">${t('common.restart')}</button>
-                               <button class="btn danger" onclick="stopInstance('${instance.name}')">${t('common.stop')}</button>
-                               <button class="btn secondary" onclick="openInstance(${instance.port})" ${serviceDown ? `disabled title="${t('manager.hint.serviceDown')}"` : ''}>${t('common.open')}</button>
-                               <button class="btn secondary" onclick="openLabelEditor('${encodeURIComponent(instance.name)}')" ${instance.datasetPath ? '' : `disabled title="${t('manager.hint.datasetPathRequired')}"`}>${t('manager.openEditor')}</button>`
-                            : `<button class="btn success" onclick="startInstance('${instance.name}')">${t('common.start')}</button>
-                               <button class="btn ghost" onclick="editInstance('${instance.name}')">${t('common.edit')}</button>
-                               <button class="btn danger" onclick="deleteInstance('${instance.name}')">${t('common.remove')}</button>
-                               <button class="btn secondary" onclick="openLabelEditor('${encodeURIComponent(instance.name)}')" ${instance.datasetPath ? '' : `disabled title="${t('manager.hint.datasetPathRequired')}"`}>${t('manager.openEditor')}</button>`
-                        }
-                        <button class="btn ghost" onclick="showLogs('${instance.name}')">${t('manager.logs')}</button>
+                        <button class="btn secondary" onclick="openViewer('${encodeURIComponent(instance.name)}')" ${disabled}>${t('manager.openViewer')}</button>
+                        <button class="btn secondary" onclick="openLabelEditor('${encodeURIComponent(instance.name)}')" ${disabled}>${t('manager.openEditor')}</button>
+                        <button class="btn ghost" onclick="findDuplicates('${instance.name}')" ${disabled}>${t('manager.findDuplicates')}</button>
+                        <button class="btn ghost" onclick="editInstance('${instance.name}')">${t('common.edit')}</button>
+                        <button class="btn danger" onclick="deleteInstance('${instance.name}')">${t('common.remove')}</button>
                     </div>
                 </div>
                 `;
             }).join('');
-        }
-
-        async function startInstance(name) {
-            showProcessing(t('manager.processing.starting', { name }));
-            try {
-                const response = await fetch(`${API_BASE}/api/instances/${name}/start`, { method: 'POST' });
-                if (!response.ok) {
-                    const error = await response.json();
-                    alert(`${t('manager.errors.failedToStart')}: ${error.error}`);
-                    return;
-                }
-                setTimeout(refreshInstances, 800);
-            } catch (err) {
-                alert(`${t('manager.errors.failedToStart')}: ${err.message}`);
-            } finally {
-                hideProcessing();
-            }
-        }
-
-        async function stopInstance(name) {
-            showProcessing(t('manager.processing.stopping', { name }));
-            try {
-                const response = await fetch(`${API_BASE}/api/instances/${name}/stop`, { method: 'POST' });
-                if (!response.ok) {
-                    const error = await response.json();
-                    alert(`${t('manager.errors.failedToStop')}: ${error.error}`);
-                    return;
-                }
-                setTimeout(refreshInstances, 800);
-            } catch (err) {
-                alert(`${t('manager.errors.failedToStop')}: ${err.message}`);
-            } finally {
-                hideProcessing();
-            }
-        }
-
-        async function restartInstance(name) {
-            try {
-                const response = await fetch(`${API_BASE}/api/instances/${name}/restart`, { method: 'POST' });
-                if (!response.ok) {
-                    const error = await response.json();
-                    alert(`${t('manager.errors.failedToRestart')}: ${error.error}`);
-                    return;
-                }
-                setTimeout(refreshInstances, 800);
-            } catch (err) {
-                alert(`${t('manager.errors.failedToRestart')}: ${err.message}`);
-            }
         }
 
         function toggleInstanceSelection(name) {
@@ -898,37 +788,11 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
 
         function updateSelectionButtons() {
             const hasSelection = selectedInstances.size > 0;
-            const startBtn = document.getElementById('startSelectedBtn');
-            const stopBtn = document.getElementById('stopSelectedBtn');
             const removeBtn = document.getElementById('removeSelectedBtn');
 
-            if (startBtn) {
-                startBtn.disabled = !hasSelection;
-                startBtn.title = hasSelection ? t('manager.hint.startSelected') : t('manager.hint.selectInstancesToStart');
-            }
-            if (stopBtn) {
-                stopBtn.disabled = !hasSelection;
-                stopBtn.title = hasSelection ? t('manager.hint.stopSelected') : t('manager.hint.selectInstancesToStop');
-            }
-
-            // Check if any selected instances are running
             if (removeBtn) {
-                const selectedArray = Array.from(selectedInstances);
-                const hasRunningInstances = selectedArray.some(name => {
-                    const instance = latestInstances.find(i => i.name === name);
-                    return instance && instance.status === 'online';
-                });
-
-                if (!hasSelection) {
-                    removeBtn.disabled = true;
-                    removeBtn.title = t('manager.hint.selectInstancesToRemove');
-                } else if (hasRunningInstances) {
-                    removeBtn.disabled = true;
-                    removeBtn.title = t('manager.hint.cannotRemoveRunning');
-                } else {
-                    removeBtn.disabled = false;
-                    removeBtn.title = t('manager.hint.removeSelected');
-                }
+                removeBtn.disabled = !hasSelection;
+                removeBtn.title = hasSelection ? t('manager.hint.removeSelected') : t('manager.hint.selectInstancesToRemove');
             }
 
             // Update select all checkbox state
@@ -944,30 +808,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
                     selectAllCheckbox.indeterminate = false;
                 }
             }
-        }
-
-        async function startSelectedInstances() {
-            if (selectedInstances.size === 0) return;
-            const selected = Array.from(selectedInstances);
-            for (const name of selected) {
-                const instance = latestInstances.find(i => i.name === name);
-                if (instance && instance.status !== 'online') {
-                    await startInstance(name);
-                }
-            }
-            refreshInstances();
-        }
-
-        async function stopSelectedInstances() {
-            if (selectedInstances.size === 0) return;
-            const selected = Array.from(selectedInstances);
-            for (const name of selected) {
-                const instance = latestInstances.find(i => i.name === name);
-                if (instance && instance.status === 'online') {
-                    await stopInstance(name);
-                }
-            }
-            refreshInstances();
         }
 
         async function removeSelectedInstances() {
@@ -1006,10 +846,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             }
         }
 
-        function openInstance(port) {
-            window.open(`http://${window.location.hostname}:${port}`, '_blank');
-        }
-
         async function openLabelEditor(encodedInstanceName) {
             const instanceName = decodeURIComponent(encodedInstanceName || '');
             if (!instanceName) {
@@ -1018,6 +854,34 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             }
             const editorUrl = `${window.location.origin}/label-editor?instance=${encodeURIComponent(instanceName)}`;
             window.open(editorUrl, '_blank');
+        }
+
+        function openViewer(encodedInstanceName) {
+            const instanceName = decodeURIComponent(encodedInstanceName || '');
+            if (!instanceName) return;
+            window.open(`${window.location.origin}/viewer?instance=${encodeURIComponent(instanceName)}`, '_blank');
+        }
+
+        async function findDuplicates(name) {
+            if (!name) return;
+            showProcessing(t('manager.processing.findingDuplicates', { name }));
+            try {
+                const response = await fetch(`${API_BASE}/api/instances/${name}/find-duplicates`, { method: 'POST' });
+                const result = await response.json();
+                if (!response.ok) {
+                    alert(`${t('manager.errors.failedToFindDuplicates')}: ${result.error || response.statusText}`);
+                    return;
+                }
+                const msg = result.duplicateCount === 0
+                    ? t('manager.duplicates.noneFound')
+                    : t('manager.duplicates.found', { count: result.duplicateCount, action: result.action });
+                alert(msg);
+                refreshInstances();
+            } catch (err) {
+                alert(`${t('manager.errors.failedToFindDuplicates')}: ${err.message}`);
+            } finally {
+                hideProcessing();
+            }
         }
 
         function normalizeStartImagePath(lastImagePath, folderPath) {
@@ -1144,7 +1008,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             document.getElementById('instanceForm').reset();
             document.getElementById('threshold').value = config.defaultIouThreshold;
             document.getElementById('threshold').disabled = false;
-            document.getElementById('autoSync').checked = true;
             document.getElementById('pentagonFormat').checked = false;
             document.getElementById('obbMode').value = 'rectangle';
             document.getElementById('obbModeGroup').style.display = 'none'; // Hide OBB mode by default
@@ -1162,13 +1025,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             // Initialize class file browser
             await navigateToClassPath('');
 
-            // Populate port dropdown and select smallest available port
-            console.log('showAddModal: Populating port options...');
-            populatePortOptions();
-            const defaultPort = findSmallestAvailablePort();
-            console.log('showAddModal: Default port selected:', defaultPort);
-            document.getElementById('instancePort').value = defaultPort;
-            updateSelectedPortDisplay();
             console.log('showAddModal: Complete');
         }
 
@@ -1193,7 +1049,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
                 document.getElementById('instanceName').value = instance.name;
                 document.getElementById('instanceName').disabled = false;
                 document.getElementById('threshold').value = instance.threshold;
-                document.getElementById('autoSync').checked = instance.autoSync || false;
                 document.getElementById('pentagonFormat').checked = instance.pentagonFormat || false;
                 document.getElementById('obbMode').value = instance.obbMode || 'rectangle';
                 document.getElementById('classFile').value = instance.classFile || '';
@@ -1265,10 +1120,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
                     }
                 }
 
-                // Populate port dropdown excluding this instance's port
-                populatePortOptions(name);
-                document.getElementById('instancePort').value = instance.port;
-                updateSelectedPortDisplay();
 
                 // Fetch .env rule for this path (to cache it and mark .env option), then set stored mode
                 suppressDuplicateDefault = false;
@@ -1334,10 +1185,8 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             event.preventDefault();
 
             const name = document.getElementById('instanceName').value;
-            const port = parseInt(document.getElementById('instancePort').value, 10);
             const datasetPath = document.getElementById('datasetPath').value;
             const threshold = parseFloat(document.getElementById('threshold').value) || config.defaultIouThreshold;
-            const autoSync = document.getElementById('autoSync').checked;
             const pentagonFormat = document.getElementById('pentagonFormat').checked;
             const obbMode = document.getElementById('obbMode').value || 'rectangle';
             const classFile = document.getElementById('classFile').value || null;
@@ -1347,23 +1196,13 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
                 return;
             }
 
-            const data = { name, port, datasetPath, threshold, autoSync, pentagonFormat, obbMode, classFile, duplicateMode };
+            const port = editingInstance
+                ? (latestInstances.find(i => i.name === editingInstance)?.port ?? findSmallestAvailablePort())
+                : findSmallestAvailablePort();
+
+            const data = { name, port, datasetPath, threshold, pentagonFormat, obbMode, classFile, duplicateMode };
 
             try {
-                if (!config.portRange) {
-                    document.getElementById('modalError').textContent = t('manager.errors.configNotLoaded');
-                    document.getElementById('modalError').style.display = 'block';
-                    return;
-                }
-                if (Number.isNaN(port) || port < config.portRange.start || port > config.portRange.end) {
-                    const message = t('manager.errors.portOutOfRange', {
-                        start: config.portRange.start,
-                        end: config.portRange.end
-                    });
-                    document.getElementById('modalError').textContent = message;
-                    document.getElementById('modalError').style.display = 'block';
-                    return;
-                }
 
                 const url = editingInstance
                     ? `${API_BASE}/api/instances/${editingInstance}`
@@ -1396,84 +1235,8 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             }
         }
 
-        async function showLogs(name) {
-            document.getElementById('logsTitle').textContent = t('manager.logsTitle', { name });
-            document.getElementById('logsContent').textContent = t('manager.loadingLogs');
-            document.getElementById('logsModal').classList.add('active');
-            activeLogsInstance = name;
-            followLogs = true;
-            toggleScrollLatest(false);
-            attachLogsScrollHandler();
-
-            await fetchAndRenderLogs(name);
-            startLogsAutoRefresh(name);
-        }
-
-        function closeLogsModal() {
-            document.getElementById('logsModal').classList.remove('active');
-            stopLogsAutoRefresh();
-        }
-
-        // Close modal on background click
-        document.addEventListener('click', (e) => {
-            const modal = document.getElementById('logsModal');
-            if (!modal) return;
-            if (modal.classList.contains('active') && e.target === modal) {
-                closeLogsModal();
-            }
-        });
-
-        // Close modal on Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                const modal = document.getElementById('logsModal');
-                if (modal && modal.classList.contains('active')) {
-                    closeLogsModal();
-                }
-            }
-        });
-
         function refreshInstances() {
             loadInstances();
-        }
-
-        function startLogsAutoRefresh(name) {
-            stopLogsAutoRefresh();
-            logsIntervalId = setInterval(() => fetchAndRenderLogs(name), LOG_POLL_MS);
-        }
-
-        function stopLogsAutoRefresh() {
-            if (logsIntervalId) {
-                clearInterval(logsIntervalId);
-                logsIntervalId = null;
-            }
-            activeLogsInstance = null;
-        }
-
-        function toggleScrollLatest(show) {
-            const btn = document.getElementById('scrollLatestBtn');
-            if (!btn) return;
-            btn.style.display = show ? 'block' : 'none';
-        }
-
-        function scrollToLatest() {
-            const container = document.getElementById('logsContent');
-            if (!container) return;
-            followLogs = true;
-            toggleScrollLatest(false);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function attachLogsScrollHandler() {
-            const container = document.getElementById('logsContent');
-            if (!container || container.dataset.listenerAttached) return;
-            container.addEventListener('scroll', () => {
-                const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-                const nearBottom = distanceFromBottom <= SCROLL_THRESHOLD;
-                followLogs = nearBottom;
-                toggleScrollLatest(!nearBottom);
-            });
-            container.dataset.listenerAttached = 'true';
         }
 
         function hideInstanceNameError() {
@@ -1517,52 +1280,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
 
             return !invalid;
         }
-
-        async function fetchAndRenderLogs(name) {
-            const container = document.getElementById('logsContent');
-            if (!container || !name) return;
-
-            const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-
-            try {
-                const response = await fetch(`${API_BASE}/api/instances/${name}/logs?lines=all`);
-                const logs = await response.json();
-
-                // Debug info
-                let debugText = '';
-                if (logs._debug) {
-                    debugText = `[DEBUG] Out log exists: ${logs._debug.outLogExists}, size: ${logs._debug.outLogSize || 0}, lines: ${logs._debug.outLogLineCount || 0}\n`;
-                    debugText += `[DEBUG] Out path: ${logs._debug.outLogPath}\n`;
-                    if (logs._debug.errLogSkipped) {
-                        debugText += `[DEBUG] Err log skipped (only reading -out.log)\n`;
-                    }
-                    debugText += '\n';
-                }
-
-                // Combine stdout and stderr, with clear separation
-                let combined = debugText;
-                if (logs.stdout && logs.stdout.trim()) {
-                    combined += '=== STDOUT ===\n' + logs.stdout + '\n';
-                }
-                if (logs.stderr && logs.stderr.trim()) {
-                    combined += '=== STDERR ===\n' + logs.stderr;
-                }
-
-                container.textContent = combined || t('manager.noLogsAvailable');
-
-                if (followLogs) {
-                    container.scrollTop = container.scrollHeight;
-                } else {
-                    const newDistance = Math.max(0, container.scrollHeight - container.clientHeight - distanceFromBottom);
-                    container.scrollTop = newDistance;
-                }
-            } catch (err) {
-                container.textContent = `${t('manager.errors.failedToLoadLogs')}: ${err.message}`;
-            }
-        }
-
-        let initialized = false;
-        let refreshTimer = null;
 
         function bindFormHandlers() {
             const nameInput = document.getElementById('instanceName');
@@ -1611,8 +1328,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
 
         function exposeToWindow() {
             if (typeof window === 'undefined') return;
-            window.startSelectedInstances = startSelectedInstances;
-            window.stopSelectedInstances = stopSelectedInstances;
             window.removeSelectedInstances = removeSelectedInstances;
             window.openLabelEditorMain = openLabelEditorMain;
             window.showAddModal = showAddModal;
@@ -1622,18 +1337,13 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             window.navigateToPath = navigateToPath;
             window.navigateToClassPath = navigateToClassPath;
             window.saveInstance = saveInstance;
-            window.closeLogsModal = closeLogsModal;
-            window.scrollToLatest = scrollToLatest;
             window.refreshAndStay = refreshAndStay;
             window.toggleInstanceSelection = toggleInstanceSelection;
-            window.startInstance = startInstance;
-            window.stopInstance = stopInstance;
-            window.restartInstance = restartInstance;
-            window.openInstance = openInstance;
+            window.openViewer = openViewer;
             window.openLabelEditor = openLabelEditor;
+            window.findDuplicates = findDuplicates;
             window.editInstance = editInstance;
             window.deleteInstance = deleteInstance;
-            window.showLogs = showLogs;
             window.selectClassFile = selectClassFile;
             window.filterFolderList = filterFolderList;
             window.clearFolderSearch = clearFolderSearch;
@@ -1655,11 +1365,6 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             const modalTitle = document.getElementById('modalTitle');
             if (modalTitle) {
                 modalTitle.textContent = editingInstance ? t('manager.modal.editTitle') : t('manager.modal.addTitle');
-            }
-
-            const logsTitle = document.getElementById('logsTitle');
-            if (logsTitle && activeLogsInstance) {
-                logsTitle.textContent = t('manager.logsTitle', { name: activeLogsInstance });
             }
 
             const portSelect = document.getElementById('instancePort');
@@ -1686,16 +1391,11 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             onLanguageChange(refreshLocalizedUI);
             exposeToWindow();
             bindFormHandlers();
-            loadConfig().then(() => {
-                const refreshInterval = config.healthCheckInterval || 5000;
-                refreshTimer = setInterval(loadInstances, refreshInterval);
-            });
+            loadConfig();
             loadInstances();
         }
 
         export {
-            startSelectedInstances,
-            stopSelectedInstances,
             removeSelectedInstances,
             openLabelEditorMain,
             showAddModal,
@@ -1705,17 +1405,12 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             navigateToPath,
             navigateToClassPath,
             saveInstance,
-            closeLogsModal,
-            scrollToLatest,
             toggleInstanceSelection,
-            startInstance,
-            stopInstance,
-            restartInstance,
-            openInstance,
+            openViewer,
             openLabelEditor,
+            findDuplicates,
             editInstance,
             deleteInstance,
-            showLogs,
             selectClassFile,
             filterFolderList,
             clearFolderSearch,

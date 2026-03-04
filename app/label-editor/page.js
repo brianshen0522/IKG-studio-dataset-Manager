@@ -273,12 +273,6 @@ export default function LabelEditorPage() {
             </div>
           </div>
 
-          <div className="sidebar-section">
-            <h2>{t('editor.instructions.title')}</h2>
-            <div className="instructions">
-              <ul />
-            </div>
-          </div>
         </div>
       </div>
 

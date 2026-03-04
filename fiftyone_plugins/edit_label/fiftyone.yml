@@ -1,8 +1,0 @@
-name: edit_label
-version: 1.0.0
-description: Opens selected sample in custom YOLO label editor
-author: FiftyOne User
-fiftyone:
-  version: ">=0.20.0"
-operators:
-  - open_label_editor

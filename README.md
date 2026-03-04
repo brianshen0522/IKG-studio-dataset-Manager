@@ -167,6 +167,7 @@ The project uses a single environment configuration file:
 | `MANAGER_PORT` | Port for the manager web UI | `3000` |
 | `DEFAULT_IOU_THRESHOLD` | Default IoU threshold (0.0-1.0) | `0.8` |
 | `DEFAULT_DEBUG_MODE` | Default debug mode setting | `false` |
+| `VIEWER_IMAGE_LOADING_BATCH_COUNT` | Viewer max concurrent thumbnail loads on open | `200` |
 | `HEALTH_CHECK_INTERVAL` | Health check frequency (ms) | `5000` |
 | `HEALTH_CHECK_TIMEOUT` | Health check timeout (ms) | `3000` |
 | `FIFTYONE_DATABASE_URI` | MongoDB connection URI | `mongodb://mongodb:27017` |

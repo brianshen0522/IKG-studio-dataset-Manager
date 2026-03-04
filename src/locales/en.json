@@ -32,7 +32,7 @@
   },
   "manager": {
     "title": "FiftyOne Manager",
-    "subtitle": "Status refresh every 5s",
+    "subtitle": "Dataset Manager",
     "addInstance": "Add Instance",
     "startSelected": "Start Selected",
     "stopSelected": "Stop Selected",
@@ -41,7 +41,7 @@
     "basePath": "Base path",
     "ports": "Ports",
     "noInstances": "No instances yet",
-    "noInstancesHint": "Click \"Add Instance\" to create your first FiftyOne instance",
+    "noInstancesHint": "Click \"Add Instance\" to create your first instance",
     "openEditor": "Open Editor",
     "logs": "Logs",
     "instanceLogs": "Instance Logs",
@@ -126,7 +126,8 @@
       "datasetPathMustBeInBase": "Dataset path must be inside the configured base path",
       "datasetFolderRequired": "Dataset folder is required to open the label editor",
       "configNotLoaded": "Config not loaded yet. Try again.",
-      "portOutOfRange": "Port must be between {start} and {end}"
+      "portOutOfRange": "Port must be between {start} and {end}",
+      "failedToFindDuplicates": "Failed to find duplicates"
     },
     "confirm": {
       "deleteInstance": "Are you sure you want to delete instance \"{name}\"?",
@@ -147,10 +148,17 @@
     },
     "processing": {
       "starting": "Starting {name}...",
-      "stopping": "Stopping {name}..."
+      "stopping": "Stopping {name}...",
+      "findingDuplicates": "Finding duplicates in {name}..."
     },
     "logsTitle": "Logs: {name}",
-    "instanceFallback": "Instance"
+    "instanceFallback": "Instance",
+    "openViewer": "Open Viewer",
+    "findDuplicates": "Find Duplicates",
+    "duplicates": {
+      "noneFound": "No duplicates found",
+      "found": "Found {count} duplicate group(s). Action: {action}"
+    }
   },
   "editor": {
     "title": "YOLO Label Editor",
@@ -222,6 +230,7 @@
       "selectAll": "Select All",
       "deselectAll": "Deselect All",
       "deleteSelected": "Delete Selected ({count})",
+      "openEditorSelected": "Open Editor ({count})",
       "confirmDelete": "Delete {count} image(s) and their labels? This cannot be undone.",
       "deleting": "Deleting {count} image(s)...",
       "deleted": "Deleted {count} image(s)",
@@ -295,5 +304,22 @@
     "zhTW": "繁中",
     "en": "EN",
     "switchTo": "Switch language"
+  },
+  "viewer": {
+    "dataset": "Dataset Viewer",
+    "openEditor": "Open Editor",
+    "findDuplicates": "Find Duplicates",
+    "findDuplicatesConfirm": "Run duplicate detection on \"{name}\"? Duplicates will be handled per the instance duplicate mode.",
+    "noClasses": "No classes found",
+    "errors": {
+      "noInstanceOrPath": "No instance or dataset path specified",
+      "loadConfigFailed": "Failed to load instance config",
+      "loadFailed": "Failed to load dataset"
+    },
+    "status": {
+      "loadingImages": "Loading image list...",
+      "loadingLabels": "Loading labels...",
+      "loadingThumbnails": "Loading thumbnails..."
+    }
   }
 }

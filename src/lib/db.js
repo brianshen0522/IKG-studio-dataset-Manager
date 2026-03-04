@@ -35,13 +35,8 @@ export async function initDatabase() {
         pentagon_format BOOLEAN DEFAULT false,
         obb_mode VARCHAR(50) DEFAULT 'rectangle',
         class_file TEXT,
-        auto_sync BOOLEAN DEFAULT true,
-        status VARCHAR(50) DEFAULT 'stopped',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        pid INTEGER,
-        service_health VARCHAR(50),
-        health_details JSONB,
         last_image_path TEXT,
         selected_images JSONB DEFAULT '[]',
         filter JSONB,
@@ -52,10 +47,15 @@ export async function initDatabase() {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_instances_port ON instances(port);
     `);
 
-    // Add duplicate_mode column if missing (migration for existing databases)
+    // Migrations for existing databases
     if (tableExists) {
       await client.query(`
         ALTER TABLE instances ADD COLUMN IF NOT EXISTS duplicate_mode VARCHAR(50) DEFAULT 'move';
+        ALTER TABLE instances DROP COLUMN IF EXISTS auto_sync;
+        ALTER TABLE instances DROP COLUMN IF EXISTS status;
+        ALTER TABLE instances DROP COLUMN IF EXISTS pid;
+        ALTER TABLE instances DROP COLUMN IF EXISTS service_health;
+        ALTER TABLE instances DROP COLUMN IF EXISTS health_details;
       `);
     }
 
@@ -87,21 +87,16 @@ export async function initDatabase() {
               pentagon_format,
               obb_mode,
               class_file,
-              auto_sync,
-              status,
               created_at,
               updated_at,
-              pid,
-              service_health,
-              health_details,
               last_image_path,
               selected_images,
               filter,
               preview_sort_mode,
               duplicate_mode
             ) VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-              $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+              $1, $2, $3, $4, $5, $6, $7, $8,
+              $9, $10, $11, $12, $13, $14, $15
             )
             ON CONFLICT (name) DO NOTHING`,
             [
@@ -113,13 +108,8 @@ export async function initDatabase() {
               instance.pentagonFormat ?? false,
               instance.obbMode || 'rectangle',
               instance.classFile || null,
-              instance.autoSync !== undefined ? instance.autoSync : true,
-              instance.status || 'stopped',
               instance.createdAt || new Date().toISOString(),
               instance.updatedAt || instance.createdAt || new Date().toISOString(),
-              instance.pid ?? null,
-              instance.serviceHealth || null,
-              instance.healthDetails ? JSON.stringify(instance.healthDetails) : null,
               instance.lastImagePath || null,
               JSON.stringify(instance.selectedImages || []),
               instance.filter ? JSON.stringify(instance.filter) : null,
@@ -163,13 +153,8 @@ function rowToInstance(row) {
     pentagonFormat: row.pentagon_format,
     obbMode: row.obb_mode,
     classFile: row.class_file,
-    autoSync: row.auto_sync,
-    status: row.status,
     createdAt: row.created_at ? row.created_at.toISOString() : null,
     updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
-    pid: row.pid,
-    serviceHealth: row.service_health,
-    healthDetails: row.health_details,
     lastImagePath: row.last_image_path,
     selectedImages: row.selected_images || [],
     filter: row.filter,
@@ -224,8 +209,8 @@ export async function createInstance(data) {
     const result = await client.query(
       `INSERT INTO instances (
         name, port, dataset_path, threshold, debug, pentagon_format,
-        obb_mode, class_file, auto_sync, status, created_at, duplicate_mode
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        obb_mode, class_file, created_at, duplicate_mode
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`,
       [
         data.name,
@@ -236,8 +221,6 @@ export async function createInstance(data) {
         data.pentagonFormat || false,
         data.obbMode || 'rectangle',
         data.classFile || null,
-        data.autoSync !== undefined ? data.autoSync : true,
-        data.status || 'stopped',
         data.createdAt || new Date().toISOString(),
         data.duplicateMode || 'move'
       ]
@@ -289,10 +272,6 @@ export async function updateInstance(name, data) {
       setClauses.push(`class_file = $${paramIndex++}`);
       values.push(data.classFile || null);
     }
-    if (data.autoSync !== undefined) {
-      setClauses.push(`auto_sync = $${paramIndex++}`);
-      values.push(data.autoSync);
-    }
     if (data.duplicateMode !== undefined) {
       setClauses.push(`duplicate_mode = $${paramIndex++}`);
       values.push(data.duplicateMode || 'move');
@@ -322,12 +301,6 @@ export async function updateInstanceFields(name, fields) {
     let paramIndex = 1;
 
     const fieldMap = {
-      status: 'status',
-      pid: 'pid',
-      uptime: null, // Not stored in DB
-      restarts: null, // Not stored in DB
-      serviceHealth: 'service_health',
-      healthDetails: 'health_details',
       lastImagePath: 'last_image_path',
       selectedImages: 'selected_images',
       filter: 'filter',
@@ -340,7 +313,7 @@ export async function updateInstanceFields(name, fields) {
       const dbField = fieldMap[key];
       if (dbField) {
         setClauses.push(`${dbField} = $${paramIndex++}`);
-        if (dbField === 'health_details' || dbField === 'selected_images' || dbField === 'filter') {
+        if (dbField === 'selected_images' || dbField === 'filter') {
           values.push(value ? JSON.stringify(value) : null);
         } else {
           values.push(value);
