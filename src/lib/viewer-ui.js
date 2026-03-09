@@ -1211,7 +1211,6 @@ function drawBboxes(imgEl, imgPath, idx) {
   const H = imgEl.naturalHeight;
   svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-  const sw = Math.max(1, Math.round(W * 0.015));
   const fontSize = Math.max(10, Math.round(Math.min(W, H) * 0.06));
   let html = '';
 
@@ -1227,8 +1226,8 @@ function drawBboxes(imgEl, imgPath, idx) {
       const [, cx, cy, bw, bh] = parts;
       const x = (cx - bw / 2) * W;
       const y = (cy - bh / 2) * H;
-      html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*W).toFixed(1)}" height="${(bh*H).toFixed(1)}" fill="none" stroke="${color}" stroke-width="${sw}"/>`;
-      html += `<text x="${(cx * W).toFixed(1)}" y="${(cy * H).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" stroke="#000000" stroke-width="${Math.max(1, sw * 0.5)}" paint-order="stroke" font-size="${fontSize}" font-weight="700">${className}</text>`;
+      html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*W).toFixed(1)}" height="${(bh*H).toFixed(1)}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+      html += `<text x="${(cx * W).toFixed(1)}" y="${(cy * H).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" stroke="#000000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
     } else if (parts.length === 9) {
       // OBB
       const pts = [];
@@ -1241,8 +1240,8 @@ function drawBboxes(imgEl, imgPath, idx) {
         sumY += py;
         pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
       }
-      html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="${sw}"/>`;
-      html += `<text x="${(sumX / 4).toFixed(1)}" y="${(sumY / 4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" stroke="#000000" stroke-width="${Math.max(1, sw * 0.5)}" paint-order="stroke" font-size="${fontSize}" font-weight="700">${className}</text>`;
+      html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+      html += `<text x="${(sumX / 4).toFixed(1)}" y="${(sumY / 4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" stroke="#000000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
     }
   }
   svgEl.innerHTML = html;
@@ -1456,7 +1455,6 @@ async function refreshCardLabel(imgPath, idx) {
       const svgEl = document.getElementById(`vs${idx}`);
       if (svgEl) {
         svgEl.setAttribute('viewBox', `0 0 ${imgEl.naturalWidth} ${imgEl.naturalHeight}`);
-        const sw = Math.max(1, Math.round(imgEl.naturalWidth * 0.015));
         const fontSize = Math.max(10, Math.round(Math.min(imgEl.naturalWidth, imgEl.naturalHeight) * 0.06));
         let html = '';
         for (const line of (content || '').trim().split('\n')) {
@@ -1469,8 +1467,8 @@ async function refreshCardLabel(imgPath, idx) {
             const [, cx, cy, bw, bh] = parts;
             const x = (cx - bw / 2) * imgEl.naturalWidth;
             const y = (cy - bh / 2) * imgEl.naturalHeight;
-            html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*imgEl.naturalWidth).toFixed(1)}" height="${(bh*imgEl.naturalHeight).toFixed(1)}" fill="none" stroke="${color}" stroke-width="${sw}"/>`;
-            html += `<text x="${(cx*imgEl.naturalWidth).toFixed(1)}" y="${(cy*imgEl.naturalHeight).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#fff" stroke="#000" stroke-width="${Math.max(1,sw*0.5)}" paint-order="stroke" font-size="${fontSize}" font-weight="700">${className}</text>`;
+            html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*imgEl.naturalWidth).toFixed(1)}" height="${(bh*imgEl.naturalHeight).toFixed(1)}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+            html += `<text x="${(cx*imgEl.naturalWidth).toFixed(1)}" y="${(cy*imgEl.naturalHeight).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#fff" stroke="#000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
           } else if (parts.length === 9) {
             const pts = [];
             let sumX = 0, sumY = 0;
@@ -1479,8 +1477,8 @@ async function refreshCardLabel(imgPath, idx) {
               sumX += px; sumY += py;
               pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
             }
-            html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="${sw}"/>`;
-            html += `<text x="${(sumX/4).toFixed(1)}" y="${(sumY/4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#fff" stroke="#000" stroke-width="${Math.max(1,sw*0.5)}" paint-order="stroke" font-size="${fontSize}" font-weight="700">${className}</text>`;
+            html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+            html += `<text x="${(sumX/4).toFixed(1)}" y="${(sumY/4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#fff" stroke="#000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
           }
         }
         svgEl.innerHTML = html;
@@ -1593,7 +1591,6 @@ function drawLightboxBboxes(imgEl, imgPath) {
   const H = imgEl.naturalHeight;
   svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-  const sw = Math.max(1, Math.round(W * 0.006));
   const fontSize = Math.max(12, Math.round(Math.min(W, H) * 0.035));
   let html = '';
 
@@ -1608,8 +1605,8 @@ function drawLightboxBboxes(imgEl, imgPath) {
       const [, cx, cy, bw, bh] = parts;
       const x = (cx - bw / 2) * W;
       const y = (cy - bh / 2) * H;
-      html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*W).toFixed(1)}" height="${(bh*H).toFixed(1)}" fill="none" stroke="${color}" stroke-width="${sw}"/>`;
-      html += `<text x="${(cx * W).toFixed(1)}" y="${((cy - bh/2) * H - sw * 1.5).toFixed(1)}" text-anchor="middle" dominant-baseline="auto" fill="${color}" stroke="#000" stroke-width="${Math.max(1, sw * 0.4)}" paint-order="stroke" font-size="${fontSize}" font-weight="700">${className}</text>`;
+      html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*W).toFixed(1)}" height="${(bh*H).toFixed(1)}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+      html += `<text x="${(cx * W).toFixed(1)}" y="${((cy - bh/2) * H).toFixed(1)}" text-anchor="middle" dominant-baseline="auto" fill="${color}" stroke="#000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
     } else if (parts.length === 9) {
       const pts = [];
       let sumX = 0, sumY = 0;
@@ -1618,8 +1615,8 @@ function drawLightboxBboxes(imgEl, imgPath) {
         sumX += px; sumY += py;
         pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
       }
-      html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="${sw}"/>`;
-      html += `<text x="${(sumX/4).toFixed(1)}" y="${(sumY/4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${color}" stroke="#000" stroke-width="${Math.max(1, sw * 0.4)}" paint-order="stroke" font-size="${fontSize}" font-weight="700">${className}</text>`;
+      html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+      html += `<text x="${(sumX/4).toFixed(1)}" y="${(sumY/4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${color}" stroke="#000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
     }
   }
   svgEl.innerHTML = html;
