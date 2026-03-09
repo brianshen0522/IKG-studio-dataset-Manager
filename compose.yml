@@ -20,7 +20,7 @@ services:
 
   fiftyone-manager:
     build: .
-    container_name: fiftyone-manager_v3
+    container_name: IKG-studio-dataset-manager
     deploy:
       resources:
         limits:

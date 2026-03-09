@@ -31,7 +31,7 @@
     "status": "Status"
   },
   "manager": {
-    "title": "IKG sudio dataset Manager",
+    "title": "IKG studio dataset Manager",
     "subtitle": "Dataset Manager",
     "addInstance": "Add Instance",
     "startSelected": "Start Selected",
@@ -299,7 +299,7 @@
   },
   "help": {
     "editorTitle": "Label Editor User Guide",
-    "managerTitle": "IKG sudio dataset Manager User Guide"
+    "managerTitle": "IKG studio dataset Manager User Guide"
   },
   "language": {
     "zhTW": "繁中",
