@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { NextResponse } from 'next/server';
 import {
   CONFIG,
@@ -67,6 +69,21 @@ export const GET = withApiLogging(async () => {
         instance.status = 'unknown';
         instance.serviceHealth = 'unknown';
         instance.healthDetails = { error: err.message };
+      }
+    }
+
+    const imageExts = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp', '.tiff', '.tif']);
+    for (const instance of instances) {
+      try {
+        const imagesDir = path.join(instance.datasetPath, 'images');
+        if (fs.existsSync(imagesDir) && fs.statSync(imagesDir).isDirectory()) {
+          instance.imageCount = fs.readdirSync(imagesDir)
+            .filter(f => imageExts.has(path.extname(f).toLowerCase())).length;
+        } else {
+          instance.imageCount = null;
+        }
+      } catch {
+        instance.imageCount = null;
       }
     }
 

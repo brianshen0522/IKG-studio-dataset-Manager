@@ -42,6 +42,7 @@
     "ports": "埠號範圍",
     "noInstances": "尚無實例",
     "noInstancesHint": "點擊「新增實例」建立您的第一個實例",
+    "imageCount": "{count} 張圖片",
     "openEditor": "開啟編輯器",
     "logs": "日誌",
     "instanceLogs": "實例日誌",

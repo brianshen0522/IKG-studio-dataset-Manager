@@ -42,6 +42,7 @@
     "ports": "Ports",
     "noInstances": "No instances yet",
     "noInstancesHint": "Click \"Add Instance\" to create your first instance",
+    "imageCount": "{count} images",
     "openEditor": "Open Editor",
     "logs": "Logs",
     "instanceLogs": "Instance Logs",

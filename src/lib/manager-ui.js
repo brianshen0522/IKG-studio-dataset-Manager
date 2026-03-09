@@ -743,7 +743,7 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
 
                     <div class="instance-grid">
                         <div class="field" style="grid-column: span 2;">
-                            <label>${t('manager.modal.datasetPath')}</label>
+                            <label>${t('manager.modal.datasetPath')}${instance.imageCount != null ? `<span style="margin-left:8px;font-size:11px;font-weight:400;color:#888;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:99px;padding:1px 8px">${t('manager.imageCount', { count: instance.imageCount })}</span>` : ''}</label>
                             <input type="text" value="${instance.datasetPath || ''}" readonly>
                         </div>
                         ${instance.classFile ? `
