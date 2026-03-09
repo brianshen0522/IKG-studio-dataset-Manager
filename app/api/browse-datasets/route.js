@@ -47,15 +47,20 @@ export const GET = withApiLogging(async (req) => {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const basePath = path.resolve(CONFIG.datasetBasePath || '/');
   const { searchParams } = new URL(req.url);
-  const browsePath = searchParams.get('path') || CONFIG.datasetBasePath || '/';
+  const requestedPath = searchParams.get('path') || basePath;
+  const resolvedBrowse = path.resolve(requestedPath);
+  const relativeToBase = path.relative(basePath, resolvedBrowse);
+  const safeBrowsePath =
+    relativeToBase === '' || (!relativeToBase.startsWith('..') && !path.isAbsolute(relativeToBase))
+      ? resolvedBrowse
+      : basePath;
 
-  if (!fs.existsSync(browsePath) || !fs.statSync(browsePath).isDirectory()) {
-    return NextResponse.json({ datasets: [], subdirs: [], currentPath: browsePath, parent: null });
+  if (!fs.existsSync(safeBrowsePath) || !fs.statSync(safeBrowsePath).isDirectory()) {
+    return NextResponse.json({ datasets: [], subdirs: [], currentPath: basePath, basePath, parent: null });
   }
 
-  const basePath = path.resolve(CONFIG.datasetBasePath || '/');
-  const resolvedBrowse = path.resolve(browsePath);
   const parentDir = path.dirname(resolvedBrowse);
   const parent = (resolvedBrowse !== basePath && parentDir !== resolvedBrowse) ? parentDir : null;
   const datasets = [];
@@ -63,14 +68,14 @@ export const GET = withApiLogging(async (req) => {
 
   let entries;
   try {
-    entries = fs.readdirSync(browsePath, { withFileTypes: true });
+    entries = fs.readdirSync(safeBrowsePath, { withFileTypes: true });
   } catch {
-    return NextResponse.json({ datasets: [], subdirs: [], currentPath: browsePath, parent });
+    return NextResponse.json({ datasets: [], subdirs: [], currentPath: safeBrowsePath, basePath, parent });
   }
 
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-    const fullPath = path.join(browsePath, entry.name);
+    const fullPath = path.join(safeBrowsePath, entry.name);
     try {
       if (isDataset(fullPath)) {
         datasets.push({ name: entry.name, path: fullPath, imageCount: countImages(fullPath) });
@@ -83,5 +88,5 @@ export const GET = withApiLogging(async (req) => {
   datasets.sort((a, b) => a.name.localeCompare(b.name));
   subdirs.sort((a, b) => a.name.localeCompare(b.name));
 
-  return NextResponse.json({ datasets, subdirs, currentPath: browsePath, parent });
+  return NextResponse.json({ datasets, subdirs, currentPath: safeBrowsePath, basePath, parent });
 });

@@ -231,12 +231,7 @@ export async function updateDatasetFields(id, fields) {
   try {
     const allowed = {
       displayName: 'display_name',
-      threshold: 'threshold',
-      debug: 'debug',
-      pentagonFormat: 'pentagon_format',
-      obbMode: 'obb_mode',
-      classFile: 'class_file',
-      duplicateMode: 'duplicate_mode'
+      classFile: 'class_file'
     };
 
     const setClauses = [];

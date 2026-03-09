@@ -14,6 +14,8 @@ import { useState, useEffect } from 'react';
  */
 export default function FileBrowser({ mode = 'folder', fileFilter, value, onChange, onClose }) {
   const [currentPath, setCurrentPath] = useState('/');
+  const [basePath, setBasePath] = useState('/');
+  const [parentPath, setParentPath] = useState(null);
   const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -48,7 +50,9 @@ export default function FileBrowser({ mode = 'folder', fileFilter, value, onChan
       const filterClassFiles = mode === 'file' ? 'false' : 'false';
       const res = await fetch(`/api/browse-path?path=${encodeURIComponent(dirPath)}&filterClassFiles=${filterClassFiles}`);
       const data = await res.json();
-      setCurrentPath(dirPath);
+      setCurrentPath(data.currentPath || dirPath);
+      setBasePath(data.basePath || '/');
+      setParentPath(data.parent || null);
       setFolders(data.folders || []);
       setFiles((data.files || []).filter(fileFilter || (() => true)));
     } catch { /* ignore */ } finally {
@@ -57,8 +61,7 @@ export default function FileBrowser({ mode = 'folder', fileFilter, value, onChan
   }
 
   function goUp() {
-    const parent = currentPath === '/' ? '/' : currentPath.replace(/\/[^/]+\/?$/, '') || '/';
-    browse(parent);
+    if (parentPath) browse(parentPath);
   }
 
   function goInto(folder) {
@@ -78,11 +81,19 @@ export default function FileBrowser({ mode = 'folder', fileFilter, value, onChan
   }
 
   // Breadcrumbs
-  const parts = currentPath === '/' ? [''] : currentPath.split('/');
-  const breadcrumbs = parts.map((p, i) => ({
-    label: i === 0 ? '/' : p,
-    path: i === 0 ? '/' : parts.slice(0, i + 1).join('/'),
-  }));
+  const relativePath = currentPath === basePath
+    ? ''
+    : currentPath.startsWith(`${basePath}/`)
+      ? currentPath.slice(basePath.length + 1)
+      : currentPath;
+  const relativeParts = relativePath ? relativePath.split('/') : [];
+  const breadcrumbs = [
+    { label: basePath, path: basePath },
+    ...relativeParts.map((part, i) => ({
+      label: part,
+      path: `${basePath}/${relativeParts.slice(0, i + 1).join('/')}`,
+    })),
+  ];
 
   const filteredFolders = search
     ? folders.filter((f) => f.toLowerCase().includes(search.toLowerCase()))
@@ -120,7 +131,7 @@ export default function FileBrowser({ mode = 'folder', fileFilter, value, onChan
         {/* File listing */}
         <div style={fb.list}>
           {loading && <div style={fb.empty}>Loading…</div>}
-          {!loading && currentPath !== '/' && (
+          {!loading && parentPath && (
             <button style={fb.item} onClick={goUp}>
               <span style={fb.icon}>↑</span>
               <span style={fb.itemName}>..</span>

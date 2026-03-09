@@ -3,7 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { withApiLogging } from '@/lib/api-logger';
 import { getUserFromRequest } from '@/lib/auth';
-import { getJobById } from '@/lib/db-datasets';
+import { getDatasetById, getJobById } from '@/lib/db-datasets';
+import { buildJobEditorPaths, isJobImagePathAllowed } from '@/lib/job-scope';
 import { canEditJob } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic';
 export const POST = withApiLogging(async (req) => {
   try {
     const { basePath, images, jobId } = await req.json();
+    let allowedImagePathSet = null;
 
     // If jobId supplied, verify access
     if (jobId) {
@@ -19,6 +21,12 @@ export const POST = withApiLogging(async (req) => {
       const job = await getJobById(Number(jobId));
       if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
       if (!canEditJob(actor, job)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+      const dataset = await getDatasetById(job.datasetId);
+      if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
+
+      const folderPath = images?.find(Boolean)?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images';
+      allowedImagePathSet = buildJobEditorPaths(dataset.datasetPath, job, folderPath).imagePathSet;
     }
 
     if (!basePath || !Array.isArray(images) || images.length === 0) {
@@ -29,6 +37,10 @@ export const POST = withApiLogging(async (req) => {
     const errors = [];
 
     for (const imagePath of images) {
+      if (allowedImagePathSet && !isJobImagePathAllowed(imagePath, allowedImagePathSet)) {
+        errors.push({ path: imagePath, error: 'Image is outside this job scope' });
+        continue;
+      }
       try {
         const fullImagePath = path.join(basePath, imagePath);
         if (fs.existsSync(fullImagePath)) fs.unlinkSync(fullImagePath);

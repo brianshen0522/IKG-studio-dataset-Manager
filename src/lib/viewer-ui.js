@@ -22,10 +22,14 @@ function escHtml(str) {
 let basePath = '';
 let folder = '';
 let instanceName = '';
+let currentDatasetId = '';
+let currentJobId = '';
+let currentClassFile = '';
 let obbMode = 'rectangle';
 let classNames = [];
 let allImageList = [];
 let imageList = [];
+let imageMetaByPath = {};
 let labelCache = {};      // imgPath -> { classes: number[], count: number }
 let labelRaw = {};        // imgPath -> raw label string
 let thumbCache = {};      // imgPath -> blob URL
@@ -68,25 +72,93 @@ export async function initViewer() {
 
   const params = new URLSearchParams(window.location.search);
   instanceName = params.get('instance') || '';
+  currentDatasetId = params.get('datasetId') || '';
+  currentJobId = params.get('jobId') || '';
   basePath = params.get('base') || '';
   folder = params.get('folder') || 'images';
+  currentClassFile = params.get('classFile') || '';
 
   buildShell();
   await loadViewerRuntimeConfig();
 
   try {
-    if (instanceName) {
+    if (currentJobId) {
+      await resolveJob(currentJobId);
+    } else if (currentDatasetId) {
+      await resolveDataset(currentDatasetId);
+    } else if (instanceName) {
       await resolveInstance(instanceName);
     } else if (!basePath) {
       setLoadProgress(false);
       showStatus(t('viewer.errors.noInstanceOrPath'), true);
       return;
+    } else {
+      await loadViewerClasses();
     }
     await loadData();
   } catch (err) {
     setLoadProgress(false);
     showStatus(`Error: ${err.message}`, true);
   }
+}
+
+async function loadViewerClasses(fallbackInstanceName = '') {
+  try {
+    let clsUrl = '';
+    if (currentClassFile) {
+      clsUrl = `${API_BASE}/api/label-editor/classes?classFile=${encodeURIComponent(currentClassFile)}`;
+    } else if (fallbackInstanceName) {
+      clsUrl = `${API_BASE}/api/label-editor/classes?instanceName=${encodeURIComponent(fallbackInstanceName)}`;
+    } else if (basePath) {
+      clsUrl = `${API_BASE}/api/label-editor/classes?basePath=${encodeURIComponent(basePath)}`;
+    }
+
+    if (!clsUrl) return;
+
+    const clsRes = await fetch(clsUrl);
+    if (!clsRes.ok) return;
+    const clsData = await clsRes.json();
+    classNames = clsData.classes || [];
+  } catch {
+    // Keep defaults when class loading fails.
+  }
+}
+
+async function resolveJob(jobId) {
+  const res = await fetch(`${API_BASE}/api/label-editor/instance-config?jobId=${encodeURIComponent(jobId)}`);
+  if (!res.ok) throw new Error((await res.json()).error || 'Job config load failed');
+  const cfg = await res.json();
+  currentDatasetId = cfg.datasetId ? String(cfg.datasetId) : currentDatasetId;
+  currentJobId = String(cfg.jobId || jobId);
+  basePath = cfg.basePath || '';
+  folder = cfg.folder || 'images';
+  currentClassFile = cfg.classFile || '';
+  obbMode = cfg.obbMode || 'rectangle';
+  allImageList = cfg.images || [];
+  imageMetaByPath = cfg.imageMeta || {};
+
+  if (Number.isFinite(cfg.viewerImageLoadingBatchCount)) {
+    viewerImageLoadingBatchCount = Math.max(1, parseInt(cfg.viewerImageLoadingBatchCount, 10) || 200);
+  }
+
+  await loadViewerClasses();
+}
+
+async function resolveDataset(datasetId) {
+  const res = await fetch(`${API_BASE}/api/label-editor/instance-config?datasetId=${encodeURIComponent(datasetId)}`);
+  if (!res.ok) throw new Error((await res.json()).error || 'Dataset config load failed');
+  const cfg = await res.json();
+  currentDatasetId = String(cfg.datasetId || datasetId);
+  basePath = cfg.basePath || '';
+  folder = cfg.folder || 'images';
+  currentClassFile = cfg.classFile || '';
+  obbMode = cfg.obbMode || 'rectangle';
+
+  if (Number.isFinite(cfg.viewerImageLoadingBatchCount)) {
+    viewerImageLoadingBatchCount = Math.max(1, parseInt(cfg.viewerImageLoadingBatchCount, 10) || 200);
+  }
+
+  await loadViewerClasses();
 }
 
 export function refreshViewerLocale() {
@@ -130,13 +202,7 @@ async function resolveInstance(name) {
   }
 
   // Load class names
-  try {
-    const clsRes = await fetch(`${API_BASE}/api/label-editor/classes?instanceName=${encodeURIComponent(name)}`);
-    if (clsRes.ok) {
-      const clsData = await clsRes.json();
-      classNames = clsData.classes || [];
-    }
-  } catch {}
+  await loadViewerClasses(name);
 }
 
 async function loadViewerRuntimeConfig() {
@@ -156,11 +222,13 @@ async function loadData() {
   showStatus(t('viewer.status.loadingImages'));
   setLoadProgress(true, t('viewer.status.loadingImages'), 0, 0, true);
 
-  // Load image list
-  const listRes = await fetch(`${API_BASE}/api/label-editor/list-folder?basePath=${encodeURIComponent(basePath)}&folder=${encodeURIComponent(folder)}`);
-  if (!listRes.ok) throw new Error((await listRes.json()).error || 'List failed');
-  const listData = await listRes.json();
-  allImageList = listData.images || [];
+  if (!currentJobId) {
+    const listRes = await fetch(`${API_BASE}/api/label-editor/list-folder?basePath=${encodeURIComponent(basePath)}&folder=${encodeURIComponent(folder)}`);
+    if (!listRes.ok) throw new Error((await listRes.json()).error || 'List failed');
+    const listData = await listRes.json();
+    allImageList = listData.images || [];
+    imageMetaByPath = listData.imageMeta || {};
+  }
   updateHeaderCount(allImageList.length);
 
   // Load labels
@@ -173,7 +241,11 @@ async function loadData() {
       const res = await fetch(`${API_BASE}/api/label-editor/load-labels-batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ basePath, imagePaths: batch })
+        body: JSON.stringify({
+          basePath,
+          jobId: currentJobId ? Number(currentJobId) : undefined,
+          imagePaths: batch
+        })
       });
       if (res.ok) {
         const data = await res.json();
@@ -222,7 +294,9 @@ function buildShell() {
   const root = document.getElementById('viewerRoot');
   if (!root) return;
 
-  const label = instanceName || folder.split('/').filter(Boolean).pop() || 'Viewer';
+  const label = currentJobId
+    ? `Job #${currentJobId} Viewer`
+    : instanceName || folder.split('/').filter(Boolean).pop() || 'Viewer';
 
   root.innerHTML = `
 <style>
@@ -780,9 +854,9 @@ function buildShell() {
   <div class="v-title">${escHtml(label)}</div>
   <div class="v-count" id="vCount"></div>
   <div class="v-hdr-acts">
-    ${instanceName ? `
+    ${(instanceName || currentJobId || currentDatasetId) ? `
     <button class="vbtn vbtn-pri" onclick="vOpenEditor()">${t('viewer.openEditor')}</button>
-    <button class="vbtn vbtn-sec" onclick="vFindDuplicates()">${t('viewer.findDuplicates')}</button>
+    ${instanceName ? `<button class="vbtn vbtn-sec" onclick="vFindDuplicates()">${t('viewer.findDuplicates')}</button>` : ''}
     ` : ''}
   </div>
 </div>
@@ -860,7 +934,7 @@ function buildShell() {
   <div class="v-lb-hdr">
     <div class="v-lb-name" id="vLbName"></div>
     <div class="v-lb-counter" id="vLbCounter"></div>
-    ${instanceName ? `<button class="vbtn vbtn-pri" style="font-size:12px;padding:6px 12px;flex-shrink:0" onclick="vLbEdit()">${t('viewer.openEditor')}</button>` : ''}
+    ${(instanceName || currentJobId || currentDatasetId) ? `<button class="vbtn vbtn-pri" style="font-size:12px;padding:6px 12px;flex-shrink:0" onclick="vLbEdit()">${t('viewer.openEditor')}</button>` : ''}
     <button class="v-lb-close" onclick="vLbClose()" title="${t('common.close') || 'Close'}">✕</button>
   </div>
   <div class="v-lb-body">
@@ -1392,11 +1466,18 @@ function updateDelBtn() {
 function openEditorSelected() {
   if (!selectedImages.size) return;
   const url = new URL(`${window.location.origin}/label-editor`);
-  url.searchParams.set('base', basePath);
+  if (currentJobId) {
+    url.searchParams.set('jobId', currentJobId);
+  } else if (currentDatasetId) {
+    url.searchParams.set('datasetId', currentDatasetId);
+  } else {
+    url.searchParams.set('base', basePath);
+  }
   url.searchParams.set('images', [...selectedImages].join(','));
+  if (currentClassFile) url.searchParams.set('classFile', currentClassFile);
   if (instanceName) url.searchParams.set('instance', instanceName);
   if (obbMode && obbMode !== 'rectangle') url.searchParams.set('obbMode', obbMode);
-  window.open(url.toString(), '_blank');
+  window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }
 
 function updateToolbarInfo() {
@@ -1497,7 +1578,11 @@ async function deleteSelected() {
     const res = await fetch(`${API_BASE}/api/label-editor/delete-images`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ basePath, imagePaths: [...selectedImages] })
+      body: JSON.stringify({
+        basePath,
+        jobId: currentJobId ? Number(currentJobId) : undefined,
+        images: [...selectedImages]
+      })
     });
     if (!res.ok) throw new Error((await res.json()).error || res.statusText);
 
@@ -1523,16 +1608,40 @@ async function deleteSelected() {
 // ── Actions ───────────────────────────────────────────────────────────────────
 function openImage(imgPath) {
   const url = new URL(`${window.location.origin}/label-editor`);
-  url.searchParams.set('base', basePath);
+  if (currentJobId) {
+    url.searchParams.set('jobId', currentJobId);
+  } else if (currentDatasetId) {
+    url.searchParams.set('datasetId', currentDatasetId);
+  } else {
+    url.searchParams.set('base', basePath);
+  }
   url.searchParams.set('img', imgPath);
+  if (currentClassFile) url.searchParams.set('classFile', currentClassFile);
   if (instanceName) url.searchParams.set('instance', instanceName);
   if (obbMode && obbMode !== 'rectangle') url.searchParams.set('obbMode', obbMode);
-  window.open(url.toString(), '_blank');
+  window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }
 
 function openEditor() {
-  if (!instanceName) return;
-  window.open(`${window.location.origin}/label-editor?instance=${encodeURIComponent(instanceName)}`, '_blank');
+  if (currentJobId) {
+    const url = new URL(`${window.location.origin}/label-editor`);
+    url.searchParams.set('jobId', currentJobId);
+    if (currentClassFile) url.searchParams.set('classFile', currentClassFile);
+    window.open(url.toString(), '_blank', 'noopener,noreferrer');
+    return;
+  }
+  if (!instanceName && !currentDatasetId && !basePath) return;
+  const url = new URL(`${window.location.origin}/label-editor`);
+  if (currentDatasetId) {
+    url.searchParams.set('datasetId', currentDatasetId);
+  } else if (instanceName) {
+    url.searchParams.set('instance', instanceName);
+  } else {
+    url.searchParams.set('base', basePath);
+  }
+  if (currentClassFile) url.searchParams.set('classFile', currentClassFile);
+  if (obbMode && obbMode !== 'rectangle') url.searchParams.set('obbMode', obbMode);
+  window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }
 
 // ── Refresh label ─────────────────────────────────────────────────────────────
@@ -1544,7 +1653,11 @@ async function refreshCardLabel(imgPath, idx) {
     const res = await fetch(`${API_BASE}/api/label-editor/load-labels-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ basePath, imagePaths: [imgPath] })
+      body: JSON.stringify({
+        basePath,
+        jobId: currentJobId ? Number(currentJobId) : undefined,
+        imagePaths: [imgPath]
+      })
     });
     if (!res.ok) return;
     const data = await res.json();

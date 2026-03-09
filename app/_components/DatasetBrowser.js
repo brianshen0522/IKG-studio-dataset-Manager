@@ -14,6 +14,7 @@ import { useState, useEffect } from 'react';
  */
 export default function DatasetBrowser({ value, onChange, onClassFileFound, onClose }) {
   const [currentPath, setCurrentPath] = useState(null);
+  const [basePath, setBasePath] = useState(null);
   const [datasets, setDatasets] = useState([]);
   const [subdirs, setSubdirs] = useState([]);
   const [parent, setParent] = useState(null);
@@ -34,6 +35,7 @@ export default function DatasetBrowser({ value, onChange, onClassFileFound, onCl
       const res = await fetch(url);
       const data = await res.json();
       setCurrentPath(data.currentPath);
+      setBasePath(data.basePath || data.currentPath || null);
       setDatasets(data.datasets || []);
       setSubdirs(data.subdirs || []);
       setParent(data.parent || null);
@@ -56,12 +58,19 @@ export default function DatasetBrowser({ value, onChange, onClassFileFound, onCl
 
   // Breadcrumb from currentPath
   const breadcrumbs = [];
-  if (currentPath) {
-    const parts = currentPath === '/' ? [''] : currentPath.split('/');
-    parts.forEach((p, i) => {
+  if (currentPath && basePath) {
+    const relativePath = currentPath === basePath
+      ? ''
+      : currentPath.startsWith(`${basePath}/`)
+        ? currentPath.slice(basePath.length + 1)
+        : currentPath;
+    const relativeParts = relativePath ? relativePath.split('/') : [];
+
+    breadcrumbs.push({ label: basePath, path: basePath });
+    relativeParts.forEach((part, i) => {
       breadcrumbs.push({
-        label: i === 0 ? '/' : p,
-        path: i === 0 ? '/' : parts.slice(0, i + 1).join('/'),
+        label: part,
+        path: `${basePath}/${relativeParts.slice(0, i + 1).join('/')}`,
       });
     });
   }

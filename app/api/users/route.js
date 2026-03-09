@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server';
 import { withApiLogging } from '@/lib/api-logger';
 import { getUserFromRequest } from '@/lib/auth';
 import { getAllUsers, createUser } from '@/lib/db';
+import { isAdminOrDM } from '@/lib/permissions';
 
 const ALLOWED_ROLES = ['admin', 'data-manager', 'user'];
 
-// GET /api/users — list all users (admin only)
+// GET /api/users — list all users (admin and data-manager)
 export const GET = withApiLogging(async function handler(req) {
   const actor = await getUserFromRequest(req);
-  if (!actor || actor.role !== 'admin') {
+  if (!isAdminOrDM(actor)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

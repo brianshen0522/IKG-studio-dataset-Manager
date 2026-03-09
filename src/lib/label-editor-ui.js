@@ -109,7 +109,11 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         let selectedImages = new Set();
         let imageSelectMode = false;
         let currentInstanceName = '';
+        let currentDatasetId = '';
         let currentJobId = '';
+        let currentClassFile = '';
+        let jobScopedImages = [];
+        let jobScopedImageMeta = {};
 
         // Filter support
         let labelCache = {}; // Cache label info for filtering: { imagePath: { classes: [0,1,2], count: 3 } }
@@ -142,7 +146,9 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         const relativeLabel = urlParams.get('lbl');
         let folderParam = urlParams.get('folder');
         const instanceNameParam = urlParams.get('instance') || '';
+        const datasetIdParam = urlParams.get('datasetId') || '';
         const jobIdParam = urlParams.get('jobId') || '';
+        const classFileParam = urlParams.get('classFile') || '';
         let startImageParam = urlParams.get('start');
         let lastKnownImageParam = startImageParam || '';
 
@@ -202,6 +208,15 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             }
         }
 
+        function applyScopedImageList(images, imageMeta = {}) {
+            allImageList = Array.isArray(images) ? [...images] : [];
+            imageMetaByPath = imageMeta || {};
+            imageList = [...allImageList];
+            filterBaseList = [...allImageList];
+            preloadedImages.clear();
+            preloadedLabels.clear();
+        }
+
         function applyLabelEditorPreloadCount(value) {
             const parsed = parseInt(value, 10);
             if (Number.isFinite(parsed) && parsed >= 0) {
@@ -238,8 +253,12 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                     const cfgResp = await fetch(`/api/label-editor/instance-config?jobId=${encodeURIComponent(jobIdParam)}`);
                     if (cfgResp.ok) {
                         const cfg = await cfgResp.json();
+                        currentDatasetId = cfg.datasetId ? String(cfg.datasetId) : '';
                         basePath = cfg.basePath || '';
                         folderParam = folderParam || cfg.folder || '';
+                        currentClassFile = cfg.classFile || '';
+                        jobScopedImages = Array.isArray(cfg.images) ? cfg.images : [];
+                        jobScopedImageMeta = cfg.imageMeta || {};
                         obbModeParam = obbModeParam !== 'rectangle' ? obbModeParam : (cfg.obbMode || 'rectangle');
                         if (!startImageParam && cfg.lastImagePath) {
                             startImageParam = cfg.lastImagePath;
@@ -256,6 +275,28 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                     }
                 } catch (err) {
                     console.warn('Failed to load job config:', err);
+                }
+            } else if (datasetIdParam && !basePath) {
+                try {
+                    const cfgResp = await fetch(`/api/label-editor/instance-config?datasetId=${encodeURIComponent(datasetIdParam)}`);
+                    if (cfgResp.ok) {
+                        const cfg = await cfgResp.json();
+                        currentDatasetId = cfg.datasetId ? String(cfg.datasetId) : datasetIdParam;
+                        basePath = cfg.basePath || '';
+                        folderParam = folderParam || cfg.folder || '';
+                        currentClassFile = cfg.classFile || '';
+                        obbModeParam = obbModeParam !== 'rectangle' ? obbModeParam : (cfg.obbMode || 'rectangle');
+                        if (cfg.labelEditorPreloadCount !== undefined) {
+                            applyLabelEditorPreloadCount(cfg.labelEditorPreloadCount);
+                            preloadCountLoaded = true;
+                        }
+                    } else {
+                        const err = await cfgResp.json().catch(() => ({}));
+                        showErrorMessage(err.error || 'Failed to load dataset config');
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('Failed to load dataset config:', err);
                 }
             } else if (instanceNameParam && !basePath) {
                 try {
@@ -295,13 +336,21 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
 
             // Store identity for persistence
             currentInstanceName = instanceNameParam;
+            if (!currentDatasetId && datasetIdParam) {
+                currentDatasetId = datasetIdParam;
+            }
             currentJobId = jobIdParam;
+            if (!currentClassFile && classFileParam) {
+                currentClassFile = classFileParam;
+            }
 
             // Set OBB creation mode from URL parameter (admin-controlled)
             obbCreationMode = obbModeParam;
 
-            // Load from folder if folder parameter is provided
-            if (folderParam) {
+            if (currentJobId && jobScopedImages.length > 0) {
+                applyScopedImageList(jobScopedImages, jobScopedImageMeta);
+            } else if (folderParam) {
+                // Legacy / dataset-wide mode
                 const loaded = await loadImagesFromFolder();
                 if (!loaded) return;
             }
@@ -567,6 +616,22 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 }
             }
 
+            if (currentClassFile) {
+                try {
+                    const response = await fetch(`/api/label-editor/classes?classFile=${encodeURIComponent(currentClassFile)}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (Array.isArray(data.classes) && data.classes.length > 0) {
+                            CLASSES = data.classes;
+                            showStatusMessage('editor.status.ready');
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Failed to load classes by classFile:', error);
+                }
+            }
+
             const classBasePath = resolveClassBasePath();
             if (!classBasePath) {
                 CLASSES = [...DEFAULT_CLASSES];
@@ -678,6 +743,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         basePath: basePath,
+                        jobId: currentJobId ? Number(currentJobId) : undefined,
                         images: imagePaths
                     })
                 });
@@ -805,6 +871,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             basePath: basePath,
+                            jobId: currentJobId ? Number(currentJobId) : undefined,
                             images: allImageList,
                             filters: filterParams
                         })
@@ -1647,7 +1714,8 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             }
             // Fallback to old format
             if (basePath) {
-                return `/api/image?basePath=${encodeURIComponent(basePath)}&relativePath=${encodeURIComponent(imagePath)}${cacheBuster}`;
+                const jobParam = currentJobId ? `&jobId=${encodeURIComponent(currentJobId)}` : '';
+                return `/api/image?basePath=${encodeURIComponent(basePath)}&relativePath=${encodeURIComponent(imagePath)}${jobParam}${cacheBuster}`;
             }
             return `/api/image?fullPath=${encodeURIComponent(imagePath)}${cacheBuster}`;
         }
@@ -1741,6 +1809,9 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             const payload = { imagePaths, maxSize: THUMBNAIL_MAX_SIZE };
             if (basePath) {
                 payload.basePath = basePath;
+            }
+            if (currentJobId) {
+                payload.jobId = Number(currentJobId);
             }
             if (currentInstanceName) {
                 payload.instanceName = currentInstanceName;
@@ -2154,7 +2225,8 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         function buildLabelUrl(imagePath) {
             const labelPath = imagePath.replace('images/', 'labels/').replace(/\.(jpg|jpeg|png)$/i, '.txt');
             if (basePath) {
-                return `/api/label-editor/load-label?basePath=${encodeURIComponent(basePath)}&relativeLabel=${encodeURIComponent(labelPath)}`;
+                const jobParam = currentJobId ? `&jobId=${encodeURIComponent(currentJobId)}` : '';
+                return `/api/label-editor/load-label?basePath=${encodeURIComponent(basePath)}&relativeLabel=${encodeURIComponent(labelPath)}${jobParam}`;
             }
             return `/api/label-editor/load-label?label=${encodeURIComponent(labelPath)}`;
         }
@@ -2292,7 +2364,11 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                     const response = await fetch('/api/label-editor/load-labels-batch', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ basePath, imagePaths: toLoad })
+                        body: JSON.stringify({
+                            basePath,
+                            jobId: currentJobId ? Number(currentJobId) : undefined,
+                            imagePaths: toLoad
+                        })
                     });
                     const data = await response.json();
 
@@ -5014,7 +5090,11 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 const res = await fetch('/api/label-editor/delete-images', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ basePath, images: Array.from(selectedImages) })
+                    body: JSON.stringify({
+                        basePath,
+                        jobId: currentJobId ? Number(currentJobId) : undefined,
+                        images: Array.from(selectedImages)
+                    })
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Delete failed');

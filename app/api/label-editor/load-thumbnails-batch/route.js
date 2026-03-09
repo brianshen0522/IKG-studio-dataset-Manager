@@ -5,12 +5,16 @@ import sharp from 'sharp';
 import { withApiLogging } from '@/lib/api-logger';
 import { getInstanceByName } from '@/lib/db';
 import { CONFIG } from '@/lib/manager';
+import { getUserFromRequest } from '@/lib/auth';
+import { getDatasetById, getJobById } from '@/lib/db-datasets';
+import { buildJobEditorPaths, isJobImagePathAllowed } from '@/lib/job-scope';
+import { canAccessJob } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
 export const POST = withApiLogging(async (req) => {
   try {
-    const { basePath, imagePaths, instanceName, maxSize } = await req.json();
+    const { basePath, imagePaths, instanceName, maxSize, jobId } = await req.json();
 
     if (!imagePaths || !Array.isArray(imagePaths)) {
       return NextResponse.json({ error: 'Missing imagePaths array' }, { status: 400 });
@@ -29,6 +33,22 @@ export const POST = withApiLogging(async (req) => {
       return NextResponse.json({ error: 'Missing basePath or instanceName' }, { status: 400 });
     }
 
+    let allowedImagePathSet = null;
+    if (jobId) {
+      const actor = await getUserFromRequest(req);
+      if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+      const job = await getJobById(Number(jobId));
+      if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      if (!canAccessJob(actor, job)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+      const dataset = await getDatasetById(job.datasetId);
+      if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
+
+      const folderPath = imagePaths.find(Boolean)?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images';
+      allowedImagePathSet = buildJobEditorPaths(dataset.datasetPath, job, folderPath).imagePathSet;
+    }
+
     const baseResolved = path.resolve(resolvedBasePath);
     const basePrefix = `${baseResolved}${path.sep}`;
     const resolvedMaxSize = Number.isFinite(parseInt(maxSize, 10)) ? parseInt(maxSize, 10) : 512;
@@ -38,6 +58,9 @@ export const POST = withApiLogging(async (req) => {
 
     for (const imagePath of imagePaths) {
       if (!imagePath || typeof imagePath !== 'string') {
+        continue;
+      }
+      if (allowedImagePathSet && !isJobImagePathAllowed(imagePath, allowedImagePathSet)) {
         continue;
       }
       const fullPath = path.resolve(path.join(baseResolved, imagePath));

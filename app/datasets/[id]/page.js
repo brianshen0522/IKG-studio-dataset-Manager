@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AppHeader from '../../_components/AppHeader';
 import { useCurrentUser } from '../../_components/useCurrentUser';
+import FileBrowser from '../../_components/FileBrowser';
 
 const STATUS_COLOR = {
   unassigned: '#9ba9c3',
@@ -23,6 +24,7 @@ function ReassignModal({ job, users, onClose, onDone }) {
   const [keepData, setKeepData] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const availableUsers = users.filter((u) => String(u.id) !== String(job.assignedTo));
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -57,7 +59,7 @@ function ReassignModal({ job, users, onClose, onDone }) {
             <label style={styles.label}>Assign To</label>
             <select style={styles.select} value={userId} onChange={(e) => setUserId(e.target.value)} required>
               <option value="">Select user…</option>
-              {users.map((u) => (
+              {availableUsers.map((u) => (
                 <option key={u.id} value={u.id}>{u.username} ({u.role})</option>
               ))}
             </select>
@@ -182,6 +184,155 @@ function BulkAssignModal({ count, users, datasetId, selectedIds, onClose, onDone
   );
 }
 
+function EditDatasetModal({ dataset, onClose, onSaved }) {
+  const [displayName, setDisplayName] = useState(dataset?.displayName || '');
+  const [classFile, setClassFile] = useState(dataset?.classFile || '');
+  const [classFilePreview, setClassFilePreview] = useState('');
+  const [classFilePreviewError, setClassFilePreviewError] = useState('');
+  const [classFilePreviewTruncated, setClassFilePreviewTruncated] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showClassFileBrowser, setShowClassFileBrowser] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClassFilePreview() {
+      const trimmed = classFile.trim();
+      if (!trimmed) {
+        setClassFilePreview('');
+        setClassFilePreviewError('');
+        setClassFilePreviewTruncated(false);
+        return;
+      }
+
+      if (!trimmed.toLowerCase().endsWith('.txt')) {
+        setClassFilePreview('');
+        setClassFilePreviewError('Preview is available for .txt files only.');
+        setClassFilePreviewTruncated(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/class-file?path=${encodeURIComponent(trimmed)}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setClassFilePreview('');
+          setClassFilePreviewError(data.error || 'Failed to load preview');
+          setClassFilePreviewTruncated(false);
+          return;
+        }
+        setClassFilePreview(data.content || '');
+        setClassFilePreviewError('');
+        setClassFilePreviewTruncated(Boolean(data.truncated));
+      } catch {
+        if (cancelled) return;
+        setClassFilePreview('');
+        setClassFilePreviewError('Failed to load preview');
+        setClassFilePreviewTruncated(false);
+      }
+    }
+
+    loadClassFilePreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [classFile]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/datasets/${dataset.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: displayName.trim() || null,
+          classFile: classFile.trim() || null
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed');
+        return;
+      }
+      onSaved(data.dataset);
+    } catch {
+      setError('Network error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <div style={styles.modalOverlay} onClick={onClose}>
+        <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.modalHeader}>
+            <h3 style={styles.modalTitle}>Edit Dataset</h3>
+            <button style={styles.closeBtn} onClick={onClose}>×</button>
+          </div>
+          <form onSubmit={handleSubmit} style={styles.form}>
+            <div style={styles.field}>
+              <label style={styles.label}>Display Name</label>
+              <input
+                style={styles.input}
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Dataset name"
+                autoFocus
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Class Names File</label>
+              <div style={styles.inputRow}>
+                <input
+                  style={{ ...styles.input, flex: 1 }}
+                  value={classFile}
+                  onChange={(e) => setClassFile(e.target.value)}
+                  placeholder="/path/to/classes.txt"
+                />
+                <button type="button" style={styles.actionBtn} onClick={() => setShowClassFileBrowser(true)}>
+                  Browse
+                </button>
+              </div>
+              {(classFilePreview || classFilePreviewError) && (
+                <div style={styles.previewBox}>
+                  <div style={styles.previewHeader}>
+                    <span style={styles.previewTitle}>Preview</span>
+                    {classFilePreviewTruncated && <span style={styles.previewMeta}>Truncated</span>}
+                  </div>
+                  {classFilePreviewError ? (
+                    <p style={styles.previewError}>{classFilePreviewError}</p>
+                  ) : (
+                    <pre style={styles.previewContent}>{classFilePreview}</pre>
+                  )}
+                </div>
+              )}
+            </div>
+            {error && <p style={styles.errorMsg}>{error}</p>}
+            <button type="submit" style={styles.submitBtn} disabled={loading}>
+              {loading ? 'Saving…' : 'Save Changes'}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {showClassFileBrowser && (
+        <FileBrowser
+          mode="file"
+          fileFilter={(f) => f.endsWith('.txt') || f.endsWith('.names') || f.endsWith('.yaml') || f.endsWith('.yml')}
+          value={classFile}
+          onChange={setClassFile}
+          onClose={() => setShowClassFileBrowser(false)}
+        />
+      )}
+    </>
+  );
+}
+
 export default function DatasetDetailPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -194,6 +345,7 @@ export default function DatasetDetailPage() {
   const [actionLoading, setActionLoading] = useState(null);
   const [assignModal, setAssignModal] = useState(null);
   const [reassignModal, setReassignModal] = useState(null);
+  const [editModal, setEditModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkAssignModal, setBulkAssignModal] = useState(false);
@@ -201,6 +353,27 @@ export default function DatasetDetailPage() {
   const isAdmin = user?.role === 'admin';
   const isDM = user?.role === 'data-manager';
   const isAdminOrDM = isAdmin || isDM;
+
+  function openInNewTab(path) {
+    if (typeof window === 'undefined') return;
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+
+  function openDatasetViewer() {
+    openInNewTab(`/viewer?datasetId=${encodeURIComponent(dataset.id)}`);
+  }
+
+  function openDatasetEditor() {
+    openInNewTab(`/label-editor?datasetId=${encodeURIComponent(dataset.id)}`);
+  }
+
+  function openJobViewer(jobId) {
+    openInNewTab(`/viewer?jobId=${jobId}`);
+  }
+
+  function openJobEditor(jobId) {
+    openInNewTab(`/label-editor?jobId=${jobId}`);
+  }
 
   const loadData = useCallback(async () => {
     try {
@@ -230,6 +403,35 @@ export default function DatasetDetailPage() {
   useEffect(() => {
     if (!authLoading) { loadData(); if (isAdminOrDM) loadUsers(); }
   }, [authLoading, isAdminOrDM, loadData, loadUsers]);
+
+  useEffect(() => {
+    if (authLoading) return undefined;
+
+    const source = new EventSource(`/api/datasets/${id}/stream`);
+    source.addEventListener('dataset', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.dataset) setDataset(data.dataset);
+        if (Array.isArray(data.jobs)) setJobs(data.jobs);
+        setLoading(false);
+      } catch {
+        // Ignore malformed SSE payloads.
+      }
+    });
+    source.addEventListener('deleted', () => {
+      router.push('/');
+    });
+    source.addEventListener('forbidden', () => {
+      router.push('/');
+    });
+    source.addEventListener('error', () => {
+      setLoading(false);
+    });
+
+    return () => {
+      source.close();
+    };
+  }, [authLoading, id, router]);
 
   function updateJob(updated) {
     setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
@@ -320,7 +522,20 @@ export default function DatasetDetailPage() {
             </p>
           </div>
           <div style={styles.dsActions}>
-            {isAdmin && (
+            {isAdminOrDM && dataset && (
+              <>
+                <button style={styles.secondaryBtn} onClick={openDatasetViewer}>
+                  Open Viewer
+                </button>
+                <button style={styles.openBtn} onClick={openDatasetEditor}>
+                  Open Editor
+                </button>
+                <button style={styles.actionBtn} onClick={() => setEditModal(true)}>
+                  Edit Dataset
+                </button>
+              </>
+            )}
+            {isAdminOrDM && (
               <button
                 style={styles.dangerBtn}
                 onClick={() => setDeleteConfirm(true)}
@@ -435,6 +650,14 @@ export default function DatasetDetailPage() {
                       )}
                       <span style={styles.tdActions}>
                         {/* Admin/DM actions */}
+                        {isAdminOrDM && (
+                          <>
+                            <button style={styles.secondaryBtnSmall} disabled={busy}
+                              onClick={() => openJobViewer(job.id)}>Viewer</button>
+                            <button style={styles.openBtnSmall} disabled={busy}
+                              onClick={() => openJobEditor(job.id)}>Editor</button>
+                          </>
+                        )}
                         {isAdminOrDM && job.status === 'unassigned' && (
                           <button style={styles.actionBtn} disabled={busy}
                             onClick={() => setAssignModal(job)}>Assign</button>
@@ -462,11 +685,11 @@ export default function DatasetDetailPage() {
                         )}
                         {!isAdminOrDM && isMyJob && job.status === 'unlabelled' && (
                           <button style={styles.openBtn} disabled={busy}
-                            onClick={() => router.push(`/label-editor?jobId=${job.id}`)}>Start Labeling</button>
+                            onClick={() => openJobEditor(job.id)}>Start Labeling</button>
                         )}
                         {!isAdminOrDM && isMyJob && job.status === 'labeling' && (
                           <button style={styles.openBtn} disabled={busy}
-                            onClick={() => router.push(`/label-editor?jobId=${job.id}`)}>Continue</button>
+                            onClick={() => openJobEditor(job.id)}>Continue</button>
                         )}
                         {!isAdminOrDM && isMyJob && job.status !== 'labelled' && (
                           <button style={{ ...styles.actionBtn, ...styles.actionBtnDanger }} disabled={busy}
@@ -496,6 +719,16 @@ export default function DatasetDetailPage() {
           users={users}
           onClose={() => setReassignModal(null)}
           onDone={(updated) => { updateJob(updated); setReassignModal(null); }}
+        />
+      )}
+      {editModal && dataset && (
+        <EditDatasetModal
+          dataset={dataset}
+          onClose={() => setEditModal(false)}
+          onSaved={(updated) => {
+            setDataset(updated);
+            setEditModal(false);
+          }}
         />
       )}
       {bulkAssignModal && (
@@ -609,7 +842,22 @@ const styles = {
     padding: '4px 10px', whiteSpace: 'nowrap',
   },
   actionBtnDanger: { borderColor: '#d24343', color: '#d24343' },
+  secondaryBtn: {
+    background: 'transparent', border: '1px solid #3a4f70', borderRadius: '7px',
+    color: '#b8c7de', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
+    padding: '8px 14px', whiteSpace: 'nowrap',
+  },
+  secondaryBtnSmall: {
+    background: 'transparent', border: '1px solid #3a4f70', borderRadius: '5px',
+    color: '#b8c7de', cursor: 'pointer', fontSize: '11px', fontWeight: 700,
+    padding: '4px 10px', whiteSpace: 'nowrap',
+  },
   openBtn: {
+    background: '#e45d25', border: 'none', borderRadius: '5px',
+    color: '#fff', cursor: 'pointer', fontSize: '11px', fontWeight: 700,
+    padding: '4px 10px', whiteSpace: 'nowrap',
+  },
+  openBtnSmall: {
     background: '#e45d25', border: 'none', borderRadius: '5px',
     color: '#fff', cursor: 'pointer', fontSize: '11px', fontWeight: 700,
     padding: '4px 10px', whiteSpace: 'nowrap',
@@ -632,6 +880,53 @@ const styles = {
   form: { display: 'flex', flexDirection: 'column', gap: '14px' },
   field: { display: 'flex', flexDirection: 'column', gap: '6px' },
   label: { color: '#9ba9c3', fontSize: '12px', fontWeight: 600 },
+  input: { background: '#0d1626', border: '1px solid #25344d', borderRadius: '7px', color: '#e6edf7', fontSize: '13px', padding: '9px 11px', outline: 'none', width: '100%', boxSizing: 'border-box' },
+  inputRow: { display: 'flex', gap: '8px', alignItems: 'center' },
+  previewBox: {
+    marginTop: '8px',
+    background: '#0d1626',
+    border: '1px solid #25344d',
+    borderRadius: '8px',
+    overflow: 'hidden',
+  },
+  previewHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 10px',
+    borderBottom: '1px solid #1b2940',
+    background: '#111b2d',
+  },
+  previewTitle: {
+    color: '#9ba9c3',
+    fontSize: '11px',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.4px',
+  },
+  previewMeta: {
+    color: '#e45d25',
+    fontSize: '11px',
+    fontWeight: 700,
+  },
+  previewContent: {
+    margin: 0,
+    padding: '10px 12px',
+    maxHeight: '180px',
+    overflow: 'auto',
+    color: '#d6e2f1',
+    fontSize: '12px',
+    lineHeight: 1.5,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  },
+  previewError: {
+    margin: 0,
+    padding: '10px 12px',
+    color: '#f87171',
+    fontSize: '12px',
+  },
   select: { background: '#0d1626', border: '1px solid #25344d', borderRadius: '7px', color: '#e6edf7', fontSize: '13px', padding: '9px 11px', outline: 'none', width: '100%' },
   checkboxLabel: { display: 'flex', alignItems: 'center', gap: '8px', color: '#9ba9c3', fontSize: '13px', cursor: 'pointer' },
   submitBtn: { background: '#e45d25', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 700, padding: '11px', marginTop: '4px' },

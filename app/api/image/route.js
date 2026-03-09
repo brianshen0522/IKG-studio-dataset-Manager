@@ -4,6 +4,10 @@ import path from 'path';
 import { Readable } from 'stream';
 import { withApiLogging } from '@/lib/api-logger';
 import { getInstanceByName } from '@/lib/db';
+import { getUserFromRequest } from '@/lib/auth';
+import { getDatasetById, getJobById } from '@/lib/db-datasets';
+import { buildJobEditorPaths, isJobImagePathAllowed } from '@/lib/job-scope';
+import { canAccessJob } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +27,7 @@ export const GET = withApiLogging(async (req) => {
     const fullPath = searchParams.get('fullPath');
     const instanceName = searchParams.get('i');
     const imageName = searchParams.get('n');
+    const jobId = searchParams.get('jobId');
 
     let imagePath = fullPath;
 
@@ -41,6 +46,23 @@ export const GET = withApiLogging(async (req) => {
       imagePath = path.join(basePath, relativePath);
     }
     // Mode 3: fullPath (already set above)
+
+    if (jobId) {
+      const actor = await getUserFromRequest(req);
+      if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+      const job = await getJobById(Number(jobId));
+      if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      if (!canAccessJob(actor, job)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+      const dataset = await getDatasetById(job.datasetId);
+      if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
+
+      const { imagePathSet } = buildJobEditorPaths(dataset.datasetPath, job, relativePath?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images');
+      if (!isJobImagePathAllowed(relativePath, imagePathSet)) {
+        return NextResponse.json({ error: 'Image is outside this job scope' }, { status: 403 });
+      }
+    }
 
     if (!imagePath || !fs.existsSync(imagePath)) {
       return NextResponse.json({ error: 'Image not found' }, { status: 404 });

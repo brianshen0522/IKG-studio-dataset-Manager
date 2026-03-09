@@ -60,12 +60,61 @@ function AddDatasetModal({ onClose, onCreated }) {
   const [path, setPath] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [classFile, setClassFile] = useState('');
+  const [classFilePreview, setClassFilePreview] = useState('');
+  const [classFilePreviewError, setClassFilePreviewError] = useState('');
+  const [classFilePreviewTruncated, setClassFilePreviewTruncated] = useState(false);
   const [obbFormat, setObbFormat] = useState(false);
   const [obbMode, setObbMode] = useState('rectangle');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPathBrowser, setShowPathBrowser] = useState(false);
   const [showClassFileBrowser, setShowClassFileBrowser] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClassFilePreview() {
+      const trimmed = classFile.trim();
+      if (!trimmed) {
+        setClassFilePreview('');
+        setClassFilePreviewError('');
+        setClassFilePreviewTruncated(false);
+        return;
+      }
+
+      if (!trimmed.toLowerCase().endsWith('.txt')) {
+        setClassFilePreview('');
+        setClassFilePreviewError('Preview is available for .txt files only.');
+        setClassFilePreviewTruncated(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/class-file?path=${encodeURIComponent(trimmed)}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setClassFilePreview('');
+          setClassFilePreviewError(data.error || 'Failed to load preview');
+          setClassFilePreviewTruncated(false);
+          return;
+        }
+        setClassFilePreview(data.content || '');
+        setClassFilePreviewError('');
+        setClassFilePreviewTruncated(Boolean(data.truncated));
+      } catch {
+        if (cancelled) return;
+        setClassFilePreview('');
+        setClassFilePreviewError('Failed to load preview');
+        setClassFilePreviewTruncated(false);
+      }
+    }
+
+    loadClassFilePreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [classFile]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -141,6 +190,19 @@ function AddDatasetModal({ onClose, onCreated }) {
               <button type="button" style={styles.browseBtn} onClick={() => setShowClassFileBrowser(true)}>Browse</button>
             </div>
             <small style={styles.hint}>Path to a .txt file with one class name per line</small>
+            {(classFilePreview || classFilePreviewError) && (
+              <div style={styles.previewBox}>
+                <div style={styles.previewHeader}>
+                  <span style={styles.previewTitle}>Preview</span>
+                  {classFilePreviewTruncated && <span style={styles.previewMeta}>Truncated</span>}
+                </div>
+                {classFilePreviewError ? (
+                  <p style={styles.previewError}>{classFilePreviewError}</p>
+                ) : (
+                  <pre style={styles.previewContent}>{classFilePreview}</pre>
+                )}
+              </div>
+            )}
           </div>
 
           <div style={styles.sectionDivider} />
@@ -216,6 +278,19 @@ export default function DashboardPage() {
   const isDM = user?.role === 'data-manager';
   const isAdminOrDM = isAdmin || isDM;
 
+  function openInNewTab(path) {
+    if (typeof window === 'undefined') return;
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+
+  function openDatasetViewer(datasetId) {
+    openInNewTab(`/viewer?datasetId=${encodeURIComponent(datasetId)}`);
+  }
+
+  function openDatasetEditor(datasetId) {
+    openInNewTab(`/label-editor?datasetId=${encodeURIComponent(datasetId)}`);
+  }
+
   const loadDatasets = useCallback(async () => {
     try {
       const res = await fetch('/api/datasets');
@@ -249,6 +324,29 @@ export default function DashboardPage() {
     }
   }, [isAdminOrDM, datasets, loadJobs]);
 
+  useEffect(() => {
+    if (authLoading || !isAdminOrDM) return undefined;
+
+    const source = new EventSource('/api/datasets/stream');
+    source.addEventListener('datasets', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setDatasets(Array.isArray(data.datasets) ? data.datasets : []);
+        setJobs(data.jobsByDataset && typeof data.jobsByDataset === 'object' ? data.jobsByDataset : {});
+        setLoading(false);
+      } catch {
+        // Ignore malformed SSE payloads.
+      }
+    });
+    source.addEventListener('error', () => {
+      setLoading(false);
+    });
+
+    return () => {
+      source.close();
+    };
+  }, [authLoading, isAdminOrDM]);
+
   // For regular users: show their assigned jobs grouped by dataset
   const myJobs = !isAdminOrDM && datasets.length > 0
     ? datasets.flatMap((d) => (jobs[d.id] || []).map((j) => ({ ...j, dataset: d })))
@@ -273,7 +371,7 @@ export default function DashboardPage() {
               <h1 style={styles.h1}>Datasets</h1>
               <p style={styles.subtitle}>{datasets.length} dataset{datasets.length !== 1 ? 's' : ''}</p>
             </div>
-            {isAdmin && (
+            {isAdminOrDM && (
               <button style={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add Dataset</button>
             )}
           </div>
@@ -283,7 +381,7 @@ export default function DashboardPage() {
           {datasets.length === 0 ? (
             <div style={styles.empty}>
               <p style={styles.emptyText}>No datasets yet.</p>
-              {isAdmin && (
+              {isAdminOrDM && (
                 <button style={styles.addBtn} onClick={() => setShowAdd(true)}>Add your first dataset</button>
               )}
             </div>
@@ -305,6 +403,28 @@ export default function DashboardPage() {
                       <span style={styles.cardImages}>{d.totalImages} images</span>
                     </div>
                     <p style={styles.cardPath}>{d.datasetPath}</p>
+                    <div style={styles.cardActions}>
+                      <button
+                        type="button"
+                        style={styles.secondaryBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDatasetViewer(d.id);
+                        }}
+                      >
+                        Open Viewer
+                      </button>
+                      <button
+                        type="button"
+                        style={styles.openBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDatasetEditor(d.id);
+                        }}
+                      >
+                        Open Editor
+                      </button>
+                    </div>
                     {dsJobs ? (
                       <ProgressBar jobs={dsJobs} />
                     ) : (
@@ -317,7 +437,7 @@ export default function DashboardPage() {
           )}
         </main>
 
-        {showAdd && (
+        {showAdd && isAdminOrDM && (
           <AddDatasetModal
             onClose={() => setShowAdd(false)}
             onCreated={(ds) => {
@@ -338,21 +458,52 @@ export default function DashboardPage() {
 }
 
 function UserDashboard({ user }) {
-  const router = useRouter();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  function openInNewTab(path) {
+    if (typeof window === 'undefined') return;
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
       try {
         const res = await fetch('/api/my-jobs');
         const data = await res.json();
-        if (res.ok) setJobs(data.jobs || []);
+        if (!cancelled && res.ok) setJobs(data.jobs || []);
       } catch { /* ignore */ } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
+
     load();
+
+    const source = new EventSource('/api/my-jobs/stream');
+    source.addEventListener('jobs', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (!cancelled) {
+          setJobs(Array.isArray(data.jobs) ? data.jobs : []);
+          setLoading(false);
+        }
+      } catch {
+        // Ignore malformed SSE payloads.
+      }
+    });
+
+    source.addEventListener('error', () => {
+      if (!cancelled) {
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      source.close();
+    };
   }, []);
 
   if (loading) {
@@ -394,12 +545,20 @@ function UserDashboard({ user }) {
                     {STATUS_LABEL[j.status]}
                   </span>
                   {(j.status === 'unlabelled' || j.status === 'labeling') && (
-                    <button
-                      style={styles.openBtn}
-                      onClick={() => router.push(`/label-editor?jobId=${j.id}`)}
-                    >
-                      Open
-                    </button>
+                    <>
+                      <button
+                        style={styles.secondaryBtn}
+                        onClick={() => openInNewTab(`/viewer?jobId=${j.id}`)}
+                      >
+                        Open Viewer
+                      </button>
+                      <button
+                        style={styles.openBtn}
+                        onClick={() => openInNewTab(`/label-editor?jobId=${j.id}`)}
+                      >
+                        Open Editor
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -522,6 +681,11 @@ const styles = {
     wordBreak: 'break-all',
     margin: 0,
   },
+  cardActions: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+  },
   progressBar: {
     height: '8px',
     borderRadius: '4px',
@@ -604,6 +768,16 @@ const styles = {
     fontWeight: 700,
     padding: '6px 14px',
   },
+  secondaryBtn: {
+    background: 'transparent',
+    border: '1px solid #3a4f70',
+    borderRadius: '6px',
+    color: '#b8c7de',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 700,
+    padding: '6px 14px',
+  },
   // Modal
   modalOverlay: {
     position: 'fixed',
@@ -673,6 +847,51 @@ const styles = {
   hint: {
     color: '#5a6a8a',
     fontSize: '11px',
+  },
+  previewBox: {
+    marginTop: '8px',
+    background: '#0d1626',
+    border: '1px solid #25344d',
+    borderRadius: '8px',
+    overflow: 'hidden',
+  },
+  previewHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 10px',
+    borderBottom: '1px solid #1b2940',
+    background: '#111b2d',
+  },
+  previewTitle: {
+    color: '#9ba9c3',
+    fontSize: '11px',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.4px',
+  },
+  previewMeta: {
+    color: '#e45d25',
+    fontSize: '11px',
+    fontWeight: 700,
+  },
+  previewContent: {
+    margin: 0,
+    padding: '10px 12px',
+    maxHeight: '180px',
+    overflow: 'auto',
+    color: '#d6e2f1',
+    fontSize: '12px',
+    lineHeight: 1.5,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  },
+  previewError: {
+    margin: 0,
+    padding: '10px 12px',
+    color: '#f87171',
+    fontSize: '12px',
   },
   select: {
     background: '#0d1626',
