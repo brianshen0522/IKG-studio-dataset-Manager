@@ -1248,6 +1248,47 @@ function getDrawRaw(raw) {
   }).join('\n');
 }
 
+function tagDims(rawName, fontSize) {
+  const pad = Math.max(1, fontSize * 0.22);
+  return { w: rawName.length * fontSize * 0.58 + pad * 2, h: fontSize + pad * 2, pad };
+}
+
+function pickTagPos(bLeft, bRight, bTop, bBottom, rawName, fontSize, allBoxes, selfIdx, placedTags, imgW, imgH) {
+  const { w: tw, h: th } = tagDims(rawName, fontSize);
+  const candidates = [
+    { rx: bLeft,      ry: bBottom },       // below
+    { rx: bLeft,      ry: bTop - th },     // above
+    { rx: bRight,     ry: bTop },          // right outside
+    { rx: bLeft - tw, ry: bTop },          // left outside
+    { rx: bLeft + 2,  ry: bTop + 2 },      // inside top-left (fallback)
+    { rx: bRight - tw - 2, ry: bTop + 2 }, // inside top-right (fallback)
+  ];
+  function score(pos) {
+    let n = 0;
+    // heavy penalty for going outside image bounds
+    if (imgW && imgH) {
+      if (pos.rx < 0 || pos.rx + tw > imgW || pos.ry < 0 || pos.ry + th > imgH) n += 50;
+    }
+    for (let i = 0; i < allBoxes.length; i++) {
+      if (i === selfIdx) continue;
+      const b = allBoxes[i];
+      if (!b) continue;
+      if (pos.rx < b.x + b.w && pos.rx + tw > b.x && pos.ry < b.y + b.h && pos.ry + th > b.y) n++;
+    }
+    for (const t of placedTags) {
+      if (pos.rx < t.x + t.w && pos.rx + tw > t.x && pos.ry < t.y + t.h && pos.ry + th > t.y) n++;
+    }
+    return n;
+  }
+  return candidates.reduce((best, c) => score(c) < score(best) ? c : best, candidates[0]);
+}
+
+function makeLabelTag(rx, ry, color, rawName, fontSize) {
+  const { w, h, pad } = tagDims(rawName, fontSize);
+  return `<rect x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" fill-opacity="0.85" rx="${(pad*0.8).toFixed(1)}" vector-effect="non-scaling-stroke"/>` +
+    `<text x="${(rx+pad).toFixed(1)}" y="${(ry+pad).toFixed(1)}" dominant-baseline="hanging" fill="#fff" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${escHtml(rawName)}</text>`;
+}
+
 function drawBboxes(imgEl, imgPath, idx) {
   const svgEl = document.getElementById(`vs${idx}`);
   if (!svgEl || !imgEl.naturalWidth) return;
@@ -1259,37 +1300,47 @@ function drawBboxes(imgEl, imgPath, idx) {
   const H = imgEl.naturalHeight;
   svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-  const fontSize = Math.max(10, Math.round(Math.min(W, H) * 0.06));
-  let html = '';
+  const fontSize = Math.max(8, Math.round(Math.min(W, H) * 0.04));
+  const lines = raw.trim().split('\n');
+  const allBoxes = lines.map(line => {
+    const p = line.trim().split(/\s+/).map(Number);
+    if (p.length === 5) return { x: (p[1]-p[3]/2)*W, y: (p[2]-p[4]/2)*H, w: p[3]*W, h: p[4]*H };
+    if (p.length === 9) {
+      let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+      for (let i=1;i<9;i+=2){const px=p[i]*W,py=p[i+1]*H;if(px<x0)x0=px;if(px>x1)x1=px;if(py<y0)y0=py;if(py>y1)y1=py;}
+      return { x: x0, y: y0, w: x1-x0, h: y1-y0 };
+    }
+    return null;
+  });
 
-  for (const line of raw.trim().split('\n')) {
-    const parts = line.trim().split(/\s+/).map(Number);
+  let html = '';
+  const placedTags = [];
+  for (let li = 0; li < lines.length; li++) {
+    const parts = lines[li].trim().split(/\s+/).map(Number);
     if (parts.length < 5 || isNaN(parts[0])) continue;
     const cls = parts[0];
     const color = classColor(cls);
-    const className = escHtml(getClassDisplayName(cls));
+    const rawName = getClassDisplayName(cls);
 
     if (parts.length === 5) {
       // YOLO bbox
       const [, cx, cy, bw, bh] = parts;
-      const x = (cx - bw / 2) * W;
-      const y = (cy - bh / 2) * H;
+      const x = (cx - bw / 2) * W, y = (cy - bh / 2) * H;
       html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*W).toFixed(1)}" height="${(bh*H).toFixed(1)}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
-      html += `<text x="${(cx * W).toFixed(1)}" y="${(cy * H).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" stroke="#000000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
+      const pos = pickTagPos(x, x+bw*W, y, y+bh*H, rawName, fontSize, allBoxes, li, placedTags, W, H);
+      const { w: tw, h: th } = tagDims(rawName, fontSize);
+      placedTags.push({ x: pos.rx, y: pos.ry, w: tw, h: th });
+      html += makeLabelTag(pos.rx, pos.ry, color, rawName, fontSize);
     } else if (parts.length === 9) {
       // OBB
       const pts = [];
-      let sumX = 0;
-      let sumY = 0;
-      for (let i = 1; i < 9; i += 2) {
-        const px = parts[i] * W;
-        const py = parts[i + 1] * H;
-        sumX += px;
-        sumY += py;
-        pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
-      }
+      let minX=Infinity,maxX=-Infinity,maxY=-Infinity,minY=Infinity;
+      for (let i=1;i<9;i+=2){const px=parts[i]*W,py=parts[i+1]*H;if(px<minX)minX=px;if(px>maxX)maxX=px;if(py>maxY)maxY=py;if(py<minY)minY=py;pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);}
       html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
-      html += `<text x="${(sumX / 4).toFixed(1)}" y="${(sumY / 4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" stroke="#000000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
+      const pos = pickTagPos(minX, maxX, minY, maxY, rawName, fontSize, allBoxes, li, placedTags, W, H);
+      const { w: tw, h: th } = tagDims(rawName, fontSize);
+      placedTags.push({ x: pos.rx, y: pos.ry, w: tw, h: th });
+      html += makeLabelTag(pos.rx, pos.ry, color, rawName, fontSize);
     }
   }
   svgEl.innerHTML = html;
@@ -1507,30 +1558,40 @@ async function refreshCardLabel(imgPath, idx) {
       const svgEl = document.getElementById(`vs${idx}`);
       if (svgEl) {
         svgEl.setAttribute('viewBox', `0 0 ${imgEl.naturalWidth} ${imgEl.naturalHeight}`);
-        const fontSize = Math.max(10, Math.round(Math.min(imgEl.naturalWidth, imgEl.naturalHeight) * 0.06));
+        const W2 = imgEl.naturalWidth, H2 = imgEl.naturalHeight;
+        const fontSize = Math.max(8, Math.round(Math.min(W2, H2) * 0.04));
+        const lines2 = getDrawRaw(content || '').trim().split('\n');
+        const allBoxes2 = lines2.map(line => {
+          const p = line.trim().split(/\s+/).map(Number);
+          if (p.length === 5) return { x:(p[1]-p[3]/2)*W2, y:(p[2]-p[4]/2)*H2, w:p[3]*W2, h:p[4]*H2 };
+          if (p.length === 9) {let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;for(let i=1;i<9;i+=2){const px=p[i]*W2,py=p[i+1]*H2;if(px<x0)x0=px;if(px>x1)x1=px;if(py<y0)y0=py;if(py>y1)y1=py;}return{x:x0,y:y0,w:x1-x0,h:y1-y0};}
+          return null;
+        });
         let html = '';
-        for (const line of getDrawRaw(content || '').trim().split('\n')) {
-          const parts = line.trim().split(/\s+/).map(Number);
+        const placedTags2 = [];
+        for (let li = 0; li < lines2.length; li++) {
+          const parts = lines2[li].trim().split(/\s+/).map(Number);
           if (parts.length < 5 || isNaN(parts[0])) continue;
           const cls = parts[0];
           const color = classColor(cls);
-          const className = escHtml(getClassDisplayName(cls));
+          const rawName = getClassDisplayName(cls);
           if (parts.length === 5) {
             const [, cx, cy, bw, bh] = parts;
-            const x = (cx - bw / 2) * imgEl.naturalWidth;
-            const y = (cy - bh / 2) * imgEl.naturalHeight;
-            html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*imgEl.naturalWidth).toFixed(1)}" height="${(bh*imgEl.naturalHeight).toFixed(1)}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
-            html += `<text x="${(cx*imgEl.naturalWidth).toFixed(1)}" y="${(cy*imgEl.naturalHeight).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#fff" stroke="#000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
+            const x = (cx-bw/2)*W2, y = (cy-bh/2)*H2;
+            html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*W2).toFixed(1)}" height="${(bh*H2).toFixed(1)}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+            const pos = pickTagPos(x, x+bw*W2, y, y+bh*H2, rawName, fontSize, allBoxes2, li, placedTags2, W2, H2);
+            const { w: tw, h: th } = tagDims(rawName, fontSize);
+            placedTags2.push({ x: pos.rx, y: pos.ry, w: tw, h: th });
+            html += makeLabelTag(pos.rx, pos.ry, color, rawName, fontSize);
           } else if (parts.length === 9) {
             const pts = [];
-            let sumX = 0, sumY = 0;
-            for (let i = 1; i < 9; i += 2) {
-              const px = parts[i] * imgEl.naturalWidth, py = parts[i+1] * imgEl.naturalHeight;
-              sumX += px; sumY += py;
-              pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
-            }
+            let minX=Infinity,maxX=-Infinity,maxY=-Infinity,minY=Infinity;
+            for(let i=1;i<9;i+=2){const px=parts[i]*W2,py=parts[i+1]*H2;if(px<minX)minX=px;if(px>maxX)maxX=px;if(py>maxY)maxY=py;if(py<minY)minY=py;pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);}
             html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
-            html += `<text x="${(sumX/4).toFixed(1)}" y="${(sumY/4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#fff" stroke="#000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
+            const pos = pickTagPos(minX, maxX, minY, maxY, rawName, fontSize, allBoxes2, li, placedTags2, W2, H2);
+            const { w: tw, h: th } = tagDims(rawName, fontSize);
+            placedTags2.push({ x: pos.rx, y: pos.ry, w: tw, h: th });
+            html += makeLabelTag(pos.rx, pos.ry, color, rawName, fontSize);
           }
         }
         svgEl.innerHTML = html;
@@ -1643,32 +1704,41 @@ function drawLightboxBboxes(imgEl, imgPath) {
   const H = imgEl.naturalHeight;
   svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-  const fontSize = Math.max(12, Math.round(Math.min(W, H) * 0.035));
-  let html = '';
+  const fontSize = Math.max(10, Math.round(Math.min(W, H) * 0.025));
+  const linesLb = raw.trim().split('\n');
+  const allBoxesLb = linesLb.map(line => {
+    const p = line.trim().split(/\s+/).map(Number);
+    if (p.length === 5) return { x:(p[1]-p[3]/2)*W, y:(p[2]-p[4]/2)*H, w:p[3]*W, h:p[4]*H };
+    if (p.length === 9) {let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;for(let i=1;i<9;i+=2){const px=p[i]*W,py=p[i+1]*H;if(px<x0)x0=px;if(px>x1)x1=px;if(py<y0)y0=py;if(py>y1)y1=py;}return{x:x0,y:y0,w:x1-x0,h:y1-y0};}
+    return null;
+  });
 
-  for (const line of raw.trim().split('\n')) {
-    const parts = line.trim().split(/\s+/).map(Number);
+  let html = '';
+  const placedTagsLb = [];
+  for (let li = 0; li < linesLb.length; li++) {
+    const parts = linesLb[li].trim().split(/\s+/).map(Number);
     if (parts.length < 5 || isNaN(parts[0])) continue;
     const cls = parts[0];
     const color = classColor(cls);
-    const className = escHtml(getClassDisplayName(cls));
+    const rawName = getClassDisplayName(cls);
 
     if (parts.length === 5) {
       const [, cx, cy, bw, bh] = parts;
-      const x = (cx - bw / 2) * W;
-      const y = (cy - bh / 2) * H;
+      const x = (cx - bw / 2) * W, y = (cy - bh / 2) * H;
       html += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*W).toFixed(1)}" height="${(bh*H).toFixed(1)}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
-      html += `<text x="${(cx * W).toFixed(1)}" y="${((cy - bh/2) * H).toFixed(1)}" text-anchor="middle" dominant-baseline="auto" fill="${color}" stroke="#000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
+      const pos = pickTagPos(x, x+bw*W, y, y+bh*H, rawName, fontSize, allBoxesLb, li, placedTagsLb, W, H);
+      const { w: tw, h: th } = tagDims(rawName, fontSize);
+      placedTagsLb.push({ x: pos.rx, y: pos.ry, w: tw, h: th });
+      html += makeLabelTag(pos.rx, pos.ry, color, rawName, fontSize);
     } else if (parts.length === 9) {
       const pts = [];
-      let sumX = 0, sumY = 0;
-      for (let i = 1; i < 9; i += 2) {
-        const px = parts[i] * W, py = parts[i + 1] * H;
-        sumX += px; sumY += py;
-        pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
-      }
+      let minX=Infinity,maxX=-Infinity,maxY=-Infinity,minY=Infinity;
+      for(let i=1;i<9;i+=2){const px=parts[i]*W,py=parts[i+1]*H;if(px<minX)minX=px;if(px>maxX)maxX=px;if(py>maxY)maxY=py;if(py<minY)minY=py;pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);}
       html += `<polygon points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
-      html += `<text x="${(sumX/4).toFixed(1)}" y="${(sumY/4).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${color}" stroke="#000" stroke-width="1" paint-order="stroke" font-size="${fontSize}" font-weight="700" vector-effect="non-scaling-stroke">${className}</text>`;
+      const pos = pickTagPos(minX, maxX, minY, maxY, rawName, fontSize, allBoxesLb, li, placedTagsLb, W, H);
+      const { w: tw, h: th } = tagDims(rawName, fontSize);
+      placedTagsLb.push({ x: pos.rx, y: pos.ry, w: tw, h: th });
+      html += makeLabelTag(pos.rx, pos.ry, color, rawName, fontSize);
     }
   }
   svgEl.innerHTML = html;
