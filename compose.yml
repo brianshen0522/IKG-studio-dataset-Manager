@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16
-    container_name: fiftyone-postgres
+    container_name: IKG-studio-dataset-manager-postgres
     deploy:
       resources:
         limits:
