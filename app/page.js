@@ -83,8 +83,7 @@ export default function Page() {
           </div>
           <div id="instancesContainer" className="instances" data-tour="instances-list">
             <div className="empty-state">
-              <h2>{t('manager.noInstances')}</h2>
-              <p>{t('manager.noInstancesHint')}</p>
+              <p>{t('common.loading')}</p>
             </div>
           </div>
         </section>

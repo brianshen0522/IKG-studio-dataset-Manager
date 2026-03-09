@@ -11,6 +11,7 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
         let suppressDuplicateDefault = false;
         let refreshTimer = null;
         let initialized = false;
+        let instancesLoading = false;
 
         function showProcessing(text = t('common.processing')) {
             const overlay = document.getElementById('processingOverlay');
@@ -680,9 +681,13 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
         }
 
         async function loadInstances() {
+            instancesLoading = true;
+            console.log('[loadInstances] loading start, instancesLoading =', instancesLoading);
             try {
                 const response = await fetch(`${API_BASE}/api/instances`);
                 const instances = await response.json();
+                instancesLoading = false;
+                console.log('[loadInstances] loading done, instancesLoading =', instancesLoading);
                 latestInstances = instances;
 
                 // Clean up selectedInstances - remove any instances that no longer exist
@@ -696,6 +701,7 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
                 renderInstances(instances);
                 updateSelectionButtons();
             } catch (err) {
+                instancesLoading = false;
                 console.error('Failed to load instances:', err);
             }
         }
@@ -1359,8 +1365,11 @@ const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
             renderFolderList(currentPath);
             renderClassBreadcrumb(currentClassPath);
             renderClassFolderList(currentClassPath);
-            renderInstances(latestInstances);
-            updateSelectionButtons();
+            console.log('[refreshLocalizedUI] instancesLoading =', instancesLoading, 'latestInstances.length =', latestInstances.length);
+            if (!instancesLoading) {
+                renderInstances(latestInstances);
+                updateSelectionButtons();
+            }
 
             const modalTitle = document.getElementById('modalTitle');
             if (modalTitle) {
