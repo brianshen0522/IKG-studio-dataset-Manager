@@ -57,7 +57,31 @@ export default function LabelEditorPage() {
           <button className="btn btn-secondary" id="prevBtn" onClick={() => callApi('previousImage')}>
             {t('editor.previous')}
           </button>
-          <span id="imageCounter" style={{ margin: '0 15px', color: '#aaa' }} />
+          <span id="imageCounter" style={{ margin: '0 15px', color: '#aaa', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <input
+              id="imageIndexInput"
+              type="text"
+              inputMode="numeric"
+              style={{ width: '52px', textAlign: 'center', background: 'transparent', border: '1px solid #444', borderRadius: '4px', color: '#aaa', fontSize: '14px', padding: '1px 4px' }}
+              onInput={(e) => {
+                e.target.value = e.target.value.replace(/\D/g, '');
+                const max = parseInt(e.target.dataset.max, 10) || 1;
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val)) {
+                  if (val < 1) e.target.value = 1;
+                  else if (val > max) e.target.value = max;
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.target.blur(); callApi('goToImageIndex', parseInt(e.target.value, 10) - 1); return; }
+                const allowed = ['Backspace','Delete','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Tab','Home','End'];
+                if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault();
+              }}
+              onBlur={(e) => callApi('goToImageIndex', parseInt(e.target.value, 10) - 1)}
+              onClick={(e) => e.target.select()}
+            />
+            <span id="imageCounterTotal" />
+          </span>
           <button className="btn btn-secondary" id="nextBtn" onClick={() => callApi('nextImage')}>
             {t('editor.next')}
           </button>

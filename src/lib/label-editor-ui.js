@@ -1879,7 +1879,15 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 counter.style.display = '';
                 prevBtn.style.display = '';
                 nextBtn.style.display = '';
-                counter.textContent = `${currentImageIndex + 1} / ${imageList.length}`;
+                const indexInput = document.getElementById('imageIndexInput');
+                const totalSpan = document.getElementById('imageCounterTotal');
+                if (indexInput && totalSpan) {
+                    indexInput.value = currentImageIndex + 1;
+                    indexInput.dataset.max = imageList.length;
+                    totalSpan.textContent = `/ ${imageList.length}`;
+                } else {
+                    counter.textContent = `${currentImageIndex + 1} / ${imageList.length}`;
+                }
                 prevBtn.disabled = currentImageIndex === 0;
                 nextBtn.disabled = currentImageIndex === imageList.length - 1;
             } else {
@@ -1911,6 +1919,20 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 updateNavigationButtons();
                 updateImagePreview();
             }
+        }
+
+        async function goToImageIndex(index) {
+            const clamped = Math.max(0, Math.min(imageList.length - 1, index));
+            if (clamped === currentImageIndex) {
+                updateNavigationButtons(); // reset input if value was invalid
+                return;
+            }
+            clearAllCreation();
+            await saveLabels(false);
+            currentImageIndex = clamped;
+            await loadImage();
+            updateNavigationButtons();
+            updateImagePreview();
         }
 
         function setupClassSelector() {
@@ -4997,6 +5019,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             initLabelEditor,
             previousImage,
             nextImage,
+            goToImageIndex,
             loadImage,
             saveLabels,
             updateSaveButtonState,
