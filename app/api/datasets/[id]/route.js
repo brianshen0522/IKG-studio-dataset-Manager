@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { NextResponse } from 'next/server';
 import { withApiLogging } from '@/lib/api-logger';
 import { getUserFromRequest } from '@/lib/auth';
@@ -27,6 +29,7 @@ export const GET = withApiLogging(async function handler(req, { params }) {
     if (rows.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  dataset.hasDuplicateFolder = fs.existsSync(path.join(dataset.datasetPath, 'duplicate'));
   return NextResponse.json({ dataset });
 });
 

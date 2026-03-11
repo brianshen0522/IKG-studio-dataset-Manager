@@ -1,8 +1,33 @@
 'use client';
 
 import { useRouter, usePathname } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
 import { useCurrentUser } from './useCurrentUser';
 import DbOfflineBanner from './DbOfflineBanner';
+
+function useRunningTaskCount(enabled) {
+  const [count, setCount] = useState(0);
+  const sourceRef = useRef(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const source = new EventSource('/api/tasks/stream');
+    sourceRef.current = source;
+
+    source.addEventListener('tasks', (e) => {
+      try {
+        const { tasks } = JSON.parse(e.data);
+        const running = (tasks || []).filter((t) => t.status === 'running' || t.status === 'pending').length;
+        setCount(running);
+      } catch {}
+    });
+
+    return () => source.close();
+  }, [enabled]);
+
+  return count;
+}
 
 export default function AppHeader({ title, backHref, backLabel }) {
   const router = useRouter();
@@ -12,6 +37,7 @@ export default function AppHeader({ title, backHref, backLabel }) {
   const isAdmin = user?.role === 'admin';
   const isDM = user?.role === 'data-manager';
   const isAdminOrDM = isAdmin || isDM;
+  const runningTasks = useRunningTaskCount(isAdminOrDM);
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -23,6 +49,7 @@ export default function AppHeader({ title, backHref, backLabel }) {
 
   return (
     <header style={styles.header}>
+      <style>{`@keyframes taskPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.7;transform:scale(1.15)} }`}</style>
       <div style={styles.left}>
         {backHref ? (
           <button style={styles.backBtn} onClick={() => router.push(backHref)}>
@@ -50,10 +77,13 @@ export default function AppHeader({ title, backHref, backLabel }) {
         )}
         {isAdminOrDM && (
           <button
-            style={{ ...styles.navBtn, ...(pathname?.startsWith('/admin/tasks') ? styles.navBtnActive : {}) }}
+            style={{ ...styles.navBtn, ...(pathname?.startsWith('/admin/tasks') ? styles.navBtnActive : {}), position: 'relative' }}
             onClick={() => router.push('/admin/tasks')}
           >
             Tasks
+            {runningTasks > 0 && (
+              <span style={styles.taskBadge}>{runningTasks}</span>
+            )}
           </button>
         )}
         {isAdmin && (
@@ -165,6 +195,24 @@ const styles = {
   navBtnActive: {
     background: 'rgba(228,93,37,0.15)',
     color: '#e45d25',
+  },
+  taskBadge: {
+    position: 'absolute',
+    top: '3px',
+    right: '3px',
+    minWidth: '16px',
+    height: '16px',
+    borderRadius: '8px',
+    background: '#2f7ff5',
+    color: '#fff',
+    fontSize: '10px',
+    fontWeight: 800,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 4px',
+    lineHeight: 1,
+    animation: 'taskPulse 1.5s ease-in-out infinite',
   },
   right: {
     display: 'flex',

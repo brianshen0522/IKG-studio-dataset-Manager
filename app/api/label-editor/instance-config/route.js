@@ -6,7 +6,7 @@ import { getJobById, getDatasetById, getJobUserState } from '@/lib/db-datasets';
 import { getUserFromRequest } from '@/lib/auth';
 import { canAccessJob, canViewAll } from '@/lib/permissions';
 import fs from 'fs';
-import { buildJobEditorPaths } from '@/lib/job-scope';
+import { buildJobEditorPaths, scanFolderImagePaths } from '@/lib/job-scope';
 import { withApiLogging } from '@/lib/api-logger';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +28,7 @@ export const GET = withApiLogging(async (req) => {
     const { searchParams } = new URL(req.url);
     const jobId = searchParams.get('jobId');
     const datasetId = searchParams.get('datasetId');
+    const view = searchParams.get('view') || '';
 
     // ---- New: job-based config ----
     if (jobId) {
@@ -44,21 +45,31 @@ export const GET = withApiLogging(async (req) => {
       const userState = await getJobUserState(Number(jobId), Number(actor.sub));
 
       const datasetPath = dataset.datasetPath || '';
-      const { basePath, folder } = buildDatasetFolder(datasetPath);
+      const isDuplicateView = view === 'duplicates';
+      const { basePath: datasetBasePath, folder: datasetFolder } = buildDatasetFolder(datasetPath);
+      const folder = isDuplicateView ? 'duplicate/images' : datasetFolder;
 
-      const { imagePaths, filenames } = buildJobEditorPaths(datasetPath, job, folder);
-      const imageMeta = {};
-      for (const filename of filenames) {
-        const fullImagePath = path.join(datasetPath, 'images', filename);
-        try {
-          const stat = fs.statSync(fullImagePath);
-          const editorPath = path.posix.join(folder.replace(/\\/g, '/').replace(/\/+$/, ''), filename);
-          imageMeta[editorPath] = {
-            ctimeMs: stat.birthtimeMs || stat.ctimeMs,
-            mtimeMs: stat.mtimeMs
-          };
-        } catch {
-          // Ignore unreadable files; the editor can still operate without timestamps.
+      let imagePaths = [];
+      let imageMeta = {};
+      if (isDuplicateView) {
+        const scanned = scanFolderImagePaths(datasetPath, folder);
+        imagePaths = scanned.imagePaths;
+        imageMeta = scanned.imageMeta;
+      } else {
+        const built = buildJobEditorPaths(datasetPath, job, folder);
+        imagePaths = built.imagePaths;
+        for (const filename of built.filenames) {
+          const fullImagePath = path.join(datasetPath, 'images', filename);
+          try {
+            const stat = fs.statSync(fullImagePath);
+            const editorPath = path.posix.join(folder.replace(/\\/g, '/').replace(/\/+$/, ''), filename);
+            imageMeta[editorPath] = {
+              ctimeMs: stat.birthtimeMs || stat.ctimeMs,
+              mtimeMs: stat.mtimeMs
+            };
+          } catch {
+            // Ignore unreadable files; the editor can still operate without timestamps.
+          }
         }
       }
 
@@ -68,9 +79,10 @@ export const GET = withApiLogging(async (req) => {
         jobIndex: job.jobIndex,
         datasetId: dataset.id,
         // Paths
-        basePath,
+        basePath: isDuplicateView ? datasetPath : datasetBasePath,
         folder,
         datasetPath,
+        view,
         // Job range
         imageStart: job.imageStart,
         imageEnd: job.imageEnd,
@@ -97,16 +109,46 @@ export const GET = withApiLogging(async (req) => {
       }
 
       const datasetPath = dataset.datasetPath || '';
-      const { basePath, folder } = buildDatasetFolder(datasetPath);
+      const isDuplicateView = view === 'duplicates';
+      const { basePath: datasetBasePath, folder: datasetFolder } = buildDatasetFolder(datasetPath);
+      const folder = isDuplicateView ? 'duplicate/images' : datasetFolder;
+      const scanned = isDuplicateView ? scanFolderImagePaths(datasetPath, folder) : null;
 
       return NextResponse.json({
         datasetId: dataset.id,
-        basePath,
+        basePath: isDuplicateView ? datasetPath : datasetBasePath,
         folder,
         datasetPath,
+        view,
+        images: scanned?.imagePaths || [],
+        imageMeta: scanned?.imageMeta || {},
         obbMode: dataset.obbMode || 'rectangle',
         classFile: dataset.classFile || null,
         labelEditorPreloadCount: CONFIG.labelEditorPreloadCount
+      });
+    }
+
+    // ---- Path-based config (admin/DM only, e.g. duplicate subfolder) ----
+    const rawPath = searchParams.get('path');
+    if (rawPath) {
+      const actor = await getUserFromRequest(req);
+      if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      if (!canViewAll(actor)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+      const resolved = path.resolve(rawPath);
+      const base = path.resolve(CONFIG.datasetBasePath);
+      if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+        return NextResponse.json({ error: 'Path outside allowed base' }, { status: 403 });
+      }
+
+      const { basePath, folder } = buildDatasetFolder(resolved);
+      return NextResponse.json({
+        basePath,
+        folder,
+        datasetPath: resolved,
+        obbMode: 'rectangle',
+        classFile: null,
+        labelEditorPreloadCount: CONFIG.labelEditorPreloadCount,
       });
     }
 

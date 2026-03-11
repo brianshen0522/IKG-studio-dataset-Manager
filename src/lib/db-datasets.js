@@ -190,6 +190,27 @@ export async function createDatasetJobs(datasetId) {
   }
 }
 
+export async function refreshDatasetImageStats(datasetId) {
+  await ensureInitialized();
+
+  const client = await getPool().connect();
+  try {
+    const dsRow = await client.query('SELECT * FROM datasets WHERE id = $1', [datasetId]);
+    if (!dsRow.rows[0]) throw new Error(`Dataset ${datasetId} not found`);
+    const dataset = rowToDataset(dsRow.rows[0]);
+
+    const totalImages = scanImageFilenames(dataset.datasetPath).length;
+    const result = await client.query(
+      'UPDATE datasets SET total_images = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [totalImages, datasetId]
+    );
+
+    return rowToDataset(result.rows[0]);
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * List all datasets with aggregated job progress stats.
  * Admin/data-manager: all datasets.

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import AppHeader from '../../_components/AppHeader';
 import { useCurrentUser } from '../../_components/useCurrentUser';
@@ -29,6 +29,53 @@ function duration(task) {
   const s = Math.round((end - start) / 1000);
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function LogBox({ logs }) {
+  const boxRef = useRef(null);
+  const bottomRef = useRef(null);
+  const [userScrolled, setUserScrolled] = useState(false);
+
+  // Auto-scroll to bottom when logs change, unless user has scrolled up
+  useEffect(() => {
+    if (!userScrolled && bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, userScrolled]);
+
+  // Detect manual scroll
+  const handleScroll = useCallback(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+    setUserScrolled(!atBottom);
+  }, []);
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setUserScrolled(false);
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div ref={boxRef} style={s.logBox} onScroll={handleScroll}>
+        {logs.length === 0
+          ? <span style={s.logEmpty}>No logs yet.</span>
+          : logs.map((entry, i) => (
+            <div key={i} style={s.logLine}>
+              <span style={s.logTs}>{new Date(entry.ts).toLocaleTimeString()}</span>
+              <span style={{ ...s.logLevel, color: LOG_COLOR[entry.level] || '#9ba9c3' }}>[{entry.level}]</span>
+              <span style={s.logMsg}>{entry.message}</span>
+            </div>
+          ))
+        }
+        <div ref={bottomRef} />
+      </div>
+      {userScrolled && (
+        <button style={s.scrollDownBtn} onClick={scrollToBottom}>↓ Latest</button>
+      )}
+    </div>
+  );
 }
 
 function TaskRow({ task }) {
@@ -64,18 +111,7 @@ function TaskRow({ task }) {
             {task.completedAt && <span style={s.metaItem}><b>Finished:</b> {new Date(task.completedAt).toLocaleString()}</span>}
           </div>
           {task.error && <div style={s.taskError}>{task.error}</div>}
-          <div style={s.logBox}>
-            {task.logs.length === 0
-              ? <span style={s.logEmpty}>No logs yet.</span>
-              : task.logs.map((entry, i) => (
-                <div key={i} style={s.logLine}>
-                  <span style={s.logTs}>{new Date(entry.ts).toLocaleTimeString()}</span>
-                  <span style={{ ...s.logLevel, color: LOG_COLOR[entry.level] || '#9ba9c3' }}>[{entry.level}]</span>
-                  <span style={s.logMsg}>{entry.message}</span>
-                </div>
-              ))
-            }
-          </div>
+          <LogBox logs={task.logs} />
         </div>
       )}
     </div>
@@ -187,6 +223,12 @@ const s = {
   },
   streamError: { color: '#f87171', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px' },
   logEmpty: { color: '#5a6a8a' },
+  scrollDownBtn: {
+    position: 'absolute', bottom: '8px', right: '12px',
+    background: '#1b2940', border: '1px solid #3a4f70', borderRadius: '20px',
+    color: '#9ba9c3', cursor: 'pointer', fontSize: '11px', fontWeight: 700,
+    padding: '4px 12px', zIndex: 1, boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+  },
   logLine: { display: 'flex', gap: '8px', marginBottom: '2px' },
   logTs: { color: '#3a4f70', flexShrink: 0 },
   logLevel: { flexShrink: 0, fontWeight: 700 },

@@ -24,6 +24,7 @@ let folder = '';
 let instanceName = '';
 let currentDatasetId = '';
 let currentJobId = '';
+let currentView = '';
 let currentClassFile = '';
 let obbMode = 'rectangle';
 let classNames = [];
@@ -74,6 +75,7 @@ export async function initViewer() {
   instanceName = params.get('instance') || '';
   currentDatasetId = params.get('datasetId') || '';
   currentJobId = params.get('jobId') || '';
+  currentView = params.get('view') || '';
   basePath = params.get('base') || '';
   folder = params.get('folder') || 'images';
   currentClassFile = params.get('classFile') || '';
@@ -125,11 +127,15 @@ async function loadViewerClasses(fallbackInstanceName = '') {
 }
 
 async function resolveJob(jobId) {
-  const res = await fetch(`${API_BASE}/api/label-editor/instance-config?jobId=${encodeURIComponent(jobId)}`);
+  const url = new URL(`${API_BASE}/api/label-editor/instance-config`);
+  url.searchParams.set('jobId', jobId);
+  if (currentView) url.searchParams.set('view', currentView);
+  const res = await fetch(url.toString());
   if (!res.ok) throw new Error((await res.json()).error || 'Job config load failed');
   const cfg = await res.json();
   currentDatasetId = cfg.datasetId ? String(cfg.datasetId) : currentDatasetId;
   currentJobId = String(cfg.jobId || jobId);
+  currentView = cfg.view || currentView;
   basePath = cfg.basePath || '';
   folder = cfg.folder || 'images';
   currentClassFile = cfg.classFile || '';
@@ -145,10 +151,14 @@ async function resolveJob(jobId) {
 }
 
 async function resolveDataset(datasetId) {
-  const res = await fetch(`${API_BASE}/api/label-editor/instance-config?datasetId=${encodeURIComponent(datasetId)}`);
+  const url = new URL(`${API_BASE}/api/label-editor/instance-config`);
+  url.searchParams.set('datasetId', datasetId);
+  if (currentView) url.searchParams.set('view', currentView);
+  const res = await fetch(url.toString());
   if (!res.ok) throw new Error((await res.json()).error || 'Dataset config load failed');
   const cfg = await res.json();
   currentDatasetId = String(cfg.datasetId || datasetId);
+  currentView = cfg.view || currentView;
   basePath = cfg.basePath || '';
   folder = cfg.folder || 'images';
   currentClassFile = cfg.classFile || '';
@@ -244,6 +254,7 @@ async function loadData() {
         body: JSON.stringify({
           basePath,
           jobId: currentJobId ? Number(currentJobId) : undefined,
+          view: currentView || undefined,
           imagePaths: batch
         })
       });
@@ -295,8 +306,9 @@ function buildShell() {
   if (!root) return;
 
   const label = currentJobId
-    ? `Job #${currentJobId} Viewer`
+    ? `Job #${currentJobId}${currentView === 'duplicates' ? ' Duplicates' : ''} Viewer`
     : instanceName || folder.split('/').filter(Boolean).pop() || 'Viewer';
+  const canOpenEditor = currentView !== 'duplicates';
 
   root.innerHTML = `
 <style>
@@ -855,7 +867,7 @@ function buildShell() {
   <div class="v-count" id="vCount"></div>
   <div class="v-hdr-acts">
     ${(instanceName || currentJobId || currentDatasetId) ? `
-    <button class="vbtn vbtn-pri" onclick="vOpenEditor()">${t('viewer.openEditor')}</button>
+    ${canOpenEditor ? `<button class="vbtn vbtn-pri" onclick="vOpenEditor()">${t('viewer.openEditor')}</button>` : ''}
     ${instanceName ? `<button class="vbtn vbtn-sec" onclick="vFindDuplicates()">${t('viewer.findDuplicates')}</button>` : ''}
     ` : ''}
   </div>
@@ -902,7 +914,7 @@ function buildShell() {
     <div class="v-toolbar">
       <button class="vbtn vbtn-sec" onclick="vSelAll()">${t('editor.selectMode.selectAll')}</button>
       <button class="vbtn vbtn-sec" onclick="vDeselAll()">${t('editor.selectMode.deselectAll')}</button>
-      <button class="vbtn vbtn-pri" id="vEditSelBtn" onclick="vOpenEditorSel()" disabled>${t('editor.selectMode.openEditorSelected', { count: '0' })}</button>
+      ${canOpenEditor ? `<button class="vbtn vbtn-pri" id="vEditSelBtn" onclick="vOpenEditorSel()" disabled>${t('editor.selectMode.openEditorSelected', { count: '0' })}</button>` : ''}
       <button class="vbtn vbtn-dan" id="vDelBtn" onclick="vDelete()" disabled>${t('editor.selectMode.deleteSelected', { count: '0' })}</button>
       <div class="v-size-slider" title="Thumbnail size">
         <span>⊞</span>
@@ -934,7 +946,7 @@ function buildShell() {
   <div class="v-lb-hdr">
     <div class="v-lb-name" id="vLbName"></div>
     <div class="v-lb-counter" id="vLbCounter"></div>
-    ${(instanceName || currentJobId || currentDatasetId) ? `<button class="vbtn vbtn-pri" style="font-size:12px;padding:6px 12px;flex-shrink:0" onclick="vLbEdit()">${t('viewer.openEditor')}</button>` : ''}
+    ${(instanceName || currentJobId || currentDatasetId) && canOpenEditor ? `<button class="vbtn vbtn-pri" style="font-size:12px;padding:6px 12px;flex-shrink:0" onclick="vLbEdit()">${t('viewer.openEditor')}</button>` : ''}
     <button class="v-lb-close" onclick="vLbClose()" title="${t('common.close') || 'Close'}">✕</button>
   </div>
   <div class="v-lb-body">
@@ -958,7 +970,7 @@ function buildShell() {
   window.vOpenEditor = openEditor;
   window.vFindDuplicates = triggerFindDuplicates;
   window.vToggleSel = toggleSel;
-  window.vOpen = openImage;
+  window.vOpen = currentView === 'duplicates' ? openLightbox : openImage;
   window.vToggleCls = toggleClass;
   window.vRefreshLabel = refreshCardLabel;
   window.vNavApply = applyNavSearch;
@@ -1230,7 +1242,13 @@ async function loadThumb(imgPath, idx, renderToken) {
     const res = await fetch(`${API_BASE}/api/label-editor/load-thumbnails-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ basePath, imagePaths: [imgPath], maxSize: 176 })
+      body: JSON.stringify({
+        basePath,
+        imagePaths: [imgPath],
+        maxSize: 176,
+        jobId: currentJobId ? Number(currentJobId) : undefined,
+        view: currentView || undefined
+      })
     });
 
     if (renderToken !== gridRenderToken) return;
@@ -1581,6 +1599,7 @@ async function deleteSelected() {
       body: JSON.stringify({
         basePath,
         jobId: currentJobId ? Number(currentJobId) : undefined,
+        view: currentView || undefined,
         images: [...selectedImages]
       })
     });
@@ -1656,6 +1675,7 @@ async function refreshCardLabel(imgPath, idx) {
       body: JSON.stringify({
         basePath,
         jobId: currentJobId ? Number(currentJobId) : undefined,
+        view: currentView || undefined,
         imagePaths: [imgPath]
       })
     });
@@ -1781,7 +1801,13 @@ async function loadLightboxThumb(imgPath, wrap, captureIdx) {
     const res = await fetch(`${API_BASE}/api/label-editor/load-thumbnails-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ basePath, imagePaths: [imgPath], maxSize: 1600 })
+      body: JSON.stringify({
+        basePath,
+        imagePaths: [imgPath],
+        maxSize: 1600,
+        jobId: currentJobId ? Number(currentJobId) : undefined,
+        view: currentView || undefined
+      })
     });
 
     if (captureIdx !== lightboxIndex) return;

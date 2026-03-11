@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { getUserFromRequest } from '@/lib/auth';
 import { getDatasetById, getJobsByDataset } from '@/lib/db-datasets';
 import { annotateJobsWithImageCount } from '@/lib/dataset-utils';
@@ -88,6 +90,7 @@ export async function GET(req, { params }) {
           });
           const jobs = annotateJobsWithImageCount(dataset.datasetPath, rawJobs);
 
+          dataset.hasDuplicateFolder = fs.existsSync(path.join(dataset.datasetPath, 'duplicate'));
           const payloadData = { dataset, jobs };
           const payload = JSON.stringify(payloadData);
           if (payload !== lastPayload) {

@@ -4,14 +4,14 @@ import path from 'path';
 import { withApiLogging } from '@/lib/api-logger';
 import { getUserFromRequest } from '@/lib/auth';
 import { getDatasetById, getJobById } from '@/lib/db-datasets';
-import { buildJobEditorPaths, isJobImagePathAllowed } from '@/lib/job-scope';
+import { buildJobEditorPaths, isJobImagePathAllowed, scanFolderImagePaths } from '@/lib/job-scope';
 import { canAccessJob } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
 export const POST = withApiLogging(async (req) => {
   try {
-    const { basePath, imagePaths, jobId } = await req.json();
+    const { basePath, imagePaths, jobId, view } = await req.json();
 
     if (!basePath || !imagePaths || !Array.isArray(imagePaths)) {
       return NextResponse.json({ error: 'Missing basePath or imagePaths array' }, { status: 400 });
@@ -29,8 +29,12 @@ export const POST = withApiLogging(async (req) => {
       const dataset = await getDatasetById(job.datasetId);
       if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
 
-      const folderPath = imagePaths.find(Boolean)?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images';
-      allowedImagePathSet = buildJobEditorPaths(dataset.datasetPath, job, folderPath).imagePathSet;
+      if (view === 'duplicates') {
+        allowedImagePathSet = scanFolderImagePaths(dataset.datasetPath, 'duplicate/images').imagePathSet;
+      } else {
+        const folderPath = imagePaths.find(Boolean)?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images';
+        allowedImagePathSet = buildJobEditorPaths(dataset.datasetPath, job, folderPath).imagePathSet;
+      }
     }
 
     // Process all labels in parallel

@@ -363,6 +363,15 @@ export default function DatasetDetailPage() {
     openInNewTab(`/viewer?datasetId=${encodeURIComponent(dataset.id)}`);
   }
 
+  function openDuplicateViewer() {
+    const firstJobId = jobs[0]?.id;
+    if (firstJobId) {
+      openInNewTab(`/viewer?jobId=${encodeURIComponent(firstJobId)}&view=duplicates`);
+      return;
+    }
+    openInNewTab(`/viewer?datasetId=${encodeURIComponent(dataset.id)}&view=duplicates`);
+  }
+
   function openDatasetEditor() {
     openInNewTab(`/label-editor?datasetId=${encodeURIComponent(dataset.id)}`);
   }
@@ -396,7 +405,11 @@ export default function DatasetDetailPage() {
     try {
       const res = await fetch('/api/users');
       const data = await res.json();
-      if (res.ok) setUsers((data.users || []).filter((u) => u.isActive && u.role === 'user'));
+      if (res.ok) {
+        setUsers((data.users || []).filter((u) =>
+          u.isActive && (u.role === 'user' || u.role === 'data-manager')
+        ));
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -530,6 +543,11 @@ export default function DatasetDetailPage() {
                 <button style={styles.secondaryBtn} onClick={openDatasetViewer} disabled={dataset.hasRunningTask}>
                   Open Viewer
                 </button>
+                {dataset.hasDuplicateFolder && (
+                  <button style={styles.duplicateBtn} onClick={openDuplicateViewer}>
+                    View Duplicates
+                  </button>
+                )}
                 <button style={styles.openBtn} onClick={openDatasetEditor} disabled={dataset.hasRunningTask}>
                   Open Editor
                 </button>
@@ -848,6 +866,11 @@ const styles = {
   secondaryBtn: {
     background: 'transparent', border: '1px solid #3a4f70', borderRadius: '7px',
     color: '#b8c7de', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
+    padding: '8px 14px', whiteSpace: 'nowrap',
+  },
+  duplicateBtn: {
+    background: 'transparent', border: '1px solid #7c4dff44', borderRadius: '7px',
+    color: '#a78bfa', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
     padding: '8px 14px', whiteSpace: 'nowrap',
   },
   secondaryBtnSmall: {

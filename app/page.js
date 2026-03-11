@@ -382,6 +382,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('datasets');
 
   const isAdmin = user?.role === 'admin';
   const isDM = user?.role === 'data-manager';
@@ -475,78 +476,97 @@ export default function DashboardPage() {
       <div style={styles.page}>
         <AppHeader />
         <main style={styles.main}>
-          <div style={styles.topBar}>
-            <div>
-              <h1 style={styles.h1}>Datasets</h1>
-              <p style={styles.subtitle}>{datasets.length} dataset{datasets.length !== 1 ? 's' : ''}</p>
+          {isDM && (
+            <div style={styles.tabBar}>
+              <button
+                style={{ ...styles.tab, ...(activeTab === 'datasets' ? styles.tabActive : {}) }}
+                onClick={() => setActiveTab('datasets')}
+              >
+                Datasets
+              </button>
+              <button
+                style={{ ...styles.tab, ...(activeTab === 'my-jobs' ? styles.tabActive : {}) }}
+                onClick={() => setActiveTab('my-jobs')}
+              >
+                My Jobs
+              </button>
             </div>
-            {isAdminOrDM && (
-              <button style={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add Dataset</button>
-            )}
-          </div>
+          )}
 
-          {error && <p style={styles.errorMsg}>{error}</p>}
-
-          {datasets.length === 0 ? (
-            <div style={styles.empty}>
-              <p style={styles.emptyText}>No datasets yet.</p>
-              {isAdminOrDM && (
-                <button style={styles.addBtn} onClick={() => setShowAdd(true)}>Add your first dataset</button>
-              )}
-            </div>
+          {activeTab === 'my-jobs' ? (
+            <MyJobsTab />
           ) : (
-            <div style={styles.grid}>
-              {datasets.map((d) => {
-                const dsJobs = jobs[d.id];
-                const scanning = !!d.hasRunningTask;
-                return (
-                  <div
-                    key={d.id}
-                    style={{ ...styles.card, ...(scanning ? styles.cardScanning : {}) }}
-                    onClick={() => !scanning && router.push(`/datasets/${d.id}`)}
-                    role="button"
-                    tabIndex={scanning ? -1 : 0}
-                    onKeyDown={(e) => !scanning && e.key === 'Enter' && router.push(`/datasets/${d.id}`)}
-                  >
-                    <div style={styles.cardHeader}>
-                      <span style={styles.cardName}>{d.displayName || d.datasetPath.split('/').pop()}</span>
-                      {scanning
-                        ? <span style={styles.scanningBadge}>⟳ Scanning…</span>
-                        : <span style={styles.cardImages}>{d.totalImages} images</span>
-                      }
-                    </div>
-                    <p style={styles.cardPath}>{d.datasetPath}</p>
-                    <div style={styles.cardActions}>
-                      <button
-                        type="button"
-                        style={{ ...styles.secondaryBtn, ...(scanning ? styles.btnDisabled : {}) }}
-                        disabled={scanning}
-                        onClick={(e) => { e.stopPropagation(); if (!scanning) openDatasetViewer(d.id); }}
+            <>
+              <div style={styles.topBar}>
+                <div>
+                  <h1 style={styles.h1}>Datasets</h1>
+                  <p style={styles.subtitle}>{datasets.length} dataset{datasets.length !== 1 ? 's' : ''}</p>
+                </div>
+                <button style={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add Dataset</button>
+              </div>
+
+              {error && <p style={styles.errorMsg}>{error}</p>}
+
+              {datasets.length === 0 ? (
+                <div style={styles.empty}>
+                  <p style={styles.emptyText}>No datasets yet.</p>
+                  <button style={styles.addBtn} onClick={() => setShowAdd(true)}>Add your first dataset</button>
+                </div>
+              ) : (
+                <div style={styles.grid}>
+                  {datasets.map((d) => {
+                    const dsJobs = jobs[d.id];
+                    const scanning = !!d.hasRunningTask;
+                    return (
+                      <div
+                        key={d.id}
+                        style={{ ...styles.card, ...(scanning ? styles.cardScanning : {}) }}
+                        onClick={() => !scanning && router.push(`/datasets/${d.id}`)}
+                        role="button"
+                        tabIndex={scanning ? -1 : 0}
+                        onKeyDown={(e) => !scanning && e.key === 'Enter' && router.push(`/datasets/${d.id}`)}
                       >
-                        Open Viewer
-                      </button>
-                      <button
-                        type="button"
-                        style={{ ...styles.openBtn, ...(scanning ? styles.btnDisabled : {}) }}
-                        disabled={scanning}
-                        onClick={(e) => { e.stopPropagation(); if (!scanning) openDatasetEditor(d.id); }}
-                      >
-                        Open Editor
-                      </button>
-                    </div>
-                    {dsJobs ? (
-                      <ProgressBar jobs={dsJobs} />
-                    ) : (
-                      <div style={styles.progressEmpty}>Loading jobs…</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                        <div style={styles.cardHeader}>
+                          <span style={styles.cardName}>{d.displayName || d.datasetPath.split('/').pop()}</span>
+                          {scanning
+                            ? <span style={styles.scanningBadge}>⟳ Scanning…</span>
+                            : <span style={styles.cardImages}>{d.totalImages} images</span>
+                          }
+                        </div>
+                        <p style={styles.cardPath}>{d.datasetPath}</p>
+                        <div style={styles.cardActions}>
+                          <button
+                            type="button"
+                            style={{ ...styles.secondaryBtn, ...(scanning ? styles.btnDisabled : {}) }}
+                            disabled={scanning}
+                            onClick={(e) => { e.stopPropagation(); if (!scanning) openDatasetViewer(d.id); }}
+                          >
+                            Open Viewer
+                          </button>
+                          <button
+                            type="button"
+                            style={{ ...styles.openBtn, ...(scanning ? styles.btnDisabled : {}) }}
+                            disabled={scanning}
+                            onClick={(e) => { e.stopPropagation(); if (!scanning) openDatasetEditor(d.id); }}
+                          >
+                            Open Editor
+                          </button>
+                        </div>
+                        {dsJobs ? (
+                          <ProgressBar jobs={dsJobs} />
+                        ) : (
+                          <div style={styles.progressEmpty}>Loading jobs…</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </main>
 
-        {showAdd && isAdminOrDM && (
+        {showAdd && (
           <AddDatasetModal
             onClose={() => setShowAdd(false)}
             onCreated={(ds) => {
@@ -563,6 +583,84 @@ export default function DashboardPage() {
   // Regular user view: load my assigned jobs
   return (
     <UserDashboard user={user} />
+  );
+}
+
+function MyJobsTab() {
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  function openInNewTab(path) {
+    if (typeof window === 'undefined') return;
+    window.open(path, '_blank', 'noopener,noreferrer');
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch('/api/my-jobs')
+      .then((r) => r.ok ? r.json() : { jobs: [] })
+      .then((data) => { if (!cancelled) { setJobs(data.jobs || []); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+
+    const source = new EventSource('/api/my-jobs/stream');
+    source.addEventListener('jobs', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (!cancelled) { setJobs(Array.isArray(data.jobs) ? data.jobs : []); setLoading(false); }
+      } catch {}
+    });
+    source.addEventListener('error', () => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; source.close(); };
+  }, []);
+
+  if (loading) return <div style={styles.loading}>Loading…</div>;
+
+  if (jobs.length === 0) {
+    return (
+      <div style={styles.empty}>
+        <p style={styles.emptyText}>No jobs assigned to you yet.</p>
+        <p style={{ color: '#9ba9c3', fontSize: '13px' }}>Ask your data manager to assign jobs.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={styles.topBar}>
+        <div>
+          <h1 style={styles.h1}>My Jobs</h1>
+          <p style={styles.subtitle}>{jobs.length} assigned job{jobs.length !== 1 ? 's' : ''}</p>
+        </div>
+      </div>
+      <div style={styles.jobList}>
+        {jobs.map((j) => (
+          <div key={j.id} style={styles.jobCard}>
+            <div style={styles.jobCardLeft}>
+              <span style={styles.jobCardDataset}>{j.datasetName || j.datasetPath?.split('/').pop() || `Dataset ${j.datasetId}`}</span>
+              <span style={styles.jobCardTitle}>Job #{j.jobIndex}</span>
+              <span style={styles.jobCardRange}>Images {j.imageStart}–{j.imageEnd}</span>
+            </div>
+            <div style={styles.jobCardRight}>
+              <span style={{ ...styles.statusBadge, background: STATUS_COLOR[j.status] + '22', color: STATUS_COLOR[j.status] }}>
+                {STATUS_LABEL[j.status]}
+              </span>
+              {(j.status === 'unlabelled' || j.status === 'labeling') && (
+                <>
+                  <button style={styles.secondaryBtn} onClick={() => openInNewTab(`/viewer?jobId=${j.id}`)}>
+                    Open Viewer
+                  </button>
+                  <button style={styles.openBtn} onClick={() => openInNewTab(`/label-editor?jobId=${j.id}`)}>
+                    Open Editor
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -898,6 +996,30 @@ const styles = {
     fontSize: '12px',
     fontWeight: 700,
     padding: '6px 14px',
+  },
+  tabBar: {
+    display: 'flex',
+    gap: '4px',
+    marginBottom: '24px',
+    borderBottom: '1px solid #1b2940',
+    paddingBottom: '0',
+  },
+  tab: {
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '2px solid transparent',
+    borderRadius: '0',
+    color: '#9ba9c3',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 600,
+    padding: '8px 16px',
+    marginBottom: '-1px',
+    transition: 'color 0.15s, border-color 0.15s',
+  },
+  tabActive: {
+    color: '#e45d25',
+    borderBottomColor: '#e45d25',
   },
   // Modal
   modalOverlay: {
