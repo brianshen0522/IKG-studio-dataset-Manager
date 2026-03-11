@@ -86,6 +86,8 @@ export async function initDatabase() {
         job_index           INTEGER NOT NULL,
         image_start         INTEGER NOT NULL,
         image_end           INTEGER NOT NULL,
+        first_image_name    TEXT,
+        last_image_name     TEXT,
         status              VARCHAR(50) NOT NULL DEFAULT 'unassigned',
         assigned_to         INTEGER REFERENCES users(id),
         assigned_at         TIMESTAMP,
@@ -95,6 +97,12 @@ export async function initDatabase() {
         updated_at          TIMESTAMP DEFAULT NOW(),
         UNIQUE(dataset_id, job_index)
       );
+    `);
+
+    // ---- Migrate: add name anchor columns to existing jobs tables ----
+    await client.query(`
+      ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_image_name TEXT;
+      ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_image_name TEXT;
     `);
 
     // ---- Job user state (per-user navigation state within a job) ----

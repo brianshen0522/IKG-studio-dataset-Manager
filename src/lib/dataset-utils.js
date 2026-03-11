@@ -43,7 +43,41 @@ export function computeJobRanges(totalImages, jobSize) {
 /**
  * Given a job (imageStart, imageEnd) and the sorted filename list,
  * return the filenames that belong to this job.
+ * Legacy index-based fallback — use getJobFilenamesByName when available.
  */
 export function getJobFilenames(sortedFilenames, imageStart, imageEnd) {
   return sortedFilenames.slice(imageStart - 1, imageEnd);
+}
+
+/**
+ * Given anchor filenames (first and last image names recorded at job creation)
+ * and the current sorted filename list, return all filenames in the lexicographic
+ * range [firstName, lastName] inclusive.
+ *
+ * This is resilient to deletions: if the boundary image itself was removed,
+ * the range is still correctly bounded by name comparison, so the count
+ * reflects however many images remain within that original range.
+ */
+export function getJobFilenamesByName(sortedFilenames, firstName, lastName) {
+  return sortedFilenames.filter((f) => f >= firstName && f <= lastName);
+}
+
+/**
+ * Scan the dataset once and attach a live `currentImageCount` to each job.
+ *
+ * Jobs with name anchors (first_image_name / last_image_name) use a
+ * name-range filter so deletions of any image — including boundary images —
+ * are reflected correctly.
+ *
+ * Legacy jobs without anchors fall back to the static DB range math.
+ */
+export function annotateJobsWithImageCount(datasetPath, jobs) {
+  const allFilenames = scanImageFilenames(datasetPath);
+  return jobs.map((job) => {
+    const count =
+      job.firstImageName && job.lastImageName
+        ? allFilenames.filter((f) => f >= job.firstImageName && f <= job.lastImageName).length
+        : job.imageEnd - job.imageStart + 1;
+    return { ...job, currentImageCount: count };
+  });
 }

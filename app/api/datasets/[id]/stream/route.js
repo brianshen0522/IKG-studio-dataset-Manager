@@ -1,5 +1,6 @@
 import { getUserFromRequest } from '@/lib/auth';
 import { getDatasetById, getJobsByDataset } from '@/lib/db-datasets';
+import { annotateJobsWithImageCount } from '@/lib/dataset-utils';
 import { canViewAll } from '@/lib/permissions';
 import { getPool } from '@/lib/db';
 
@@ -81,10 +82,11 @@ export async function GET(req, { params }) {
             return;
           }
 
-          const jobs = await getJobsByDataset(datasetId, {
+          const rawJobs = await getJobsByDataset(datasetId, {
             role: actor.role,
             userId: Number(actor.sub)
           });
+          const jobs = annotateJobsWithImageCount(dataset.datasetPath, rawJobs);
 
           const payloadData = { dataset, jobs };
           const payload = JSON.stringify(payloadData);

@@ -1,5 +1,5 @@
 import path from 'path';
-import { scanImageFilenames, getJobFilenames } from './dataset-utils.js';
+import { scanImageFilenames, getJobFilenames, getJobFilenamesByName } from './dataset-utils.js';
 
 function normalizeFolderPath(folderPath) {
   return (folderPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
@@ -14,6 +14,9 @@ function toLabelRelativePath(imageRelativePath) {
 
 export function getJobImageFilenames(datasetPath, job) {
   const allFilenames = scanImageFilenames(datasetPath);
+  if (job.firstImageName && job.lastImageName) {
+    return getJobFilenamesByName(allFilenames, job.firstImageName, job.lastImageName);
+  }
   return getJobFilenames(allFilenames, job.imageStart, job.imageEnd);
 }
 

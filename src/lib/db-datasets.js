@@ -40,6 +40,8 @@ function rowToJob(row) {
     jobIndex: row.job_index,
     imageStart: row.image_start,
     imageEnd: row.image_end,
+    firstImageName: row.first_image_name || null,
+    lastImageName: row.last_image_name || null,
     status: row.status,
     assignedTo: row.assigned_to,
     assignedToUsername: row.assigned_to_username || null,
@@ -119,10 +121,12 @@ export async function createDataset({
 
     // Insert jobs in bulk
     for (const { jobIndex, imageStart, imageEnd } of jobRanges) {
+      const firstName = filenames[imageStart - 1] || null;
+      const lastName = filenames[imageEnd - 1] || null;
       await client.query(
-        `INSERT INTO jobs (dataset_id, job_index, image_start, image_end)
-         VALUES ($1, $2, $3, $4)`,
-        [dataset.id, jobIndex, imageStart, imageEnd]
+        `INSERT INTO jobs (dataset_id, job_index, image_start, image_end, first_image_name, last_image_name)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [dataset.id, jobIndex, imageStart, imageEnd, firstName, lastName]
       );
     }
 

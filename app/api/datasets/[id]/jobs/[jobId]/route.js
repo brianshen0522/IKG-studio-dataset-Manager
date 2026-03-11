@@ -3,7 +3,7 @@ import { withApiLogging } from '@/lib/api-logger';
 import { getUserFromRequest } from '@/lib/auth';
 import { getJobById } from '@/lib/db-datasets';
 import { canAccessJob } from '@/lib/permissions';
-import { getJobFilenames, scanImageFilenames } from '@/lib/dataset-utils';
+import { scanImageFilenames, getJobFilenames, getJobFilenamesByName } from '@/lib/dataset-utils';
 import { getDatasetById } from '@/lib/db-datasets';
 
 export const dynamic = 'force-dynamic';
@@ -27,7 +27,9 @@ export const GET = withApiLogging(async function handler(req, { params }) {
     const dataset = await getDatasetById(Number(params.id));
     if (dataset) {
       const all = scanImageFilenames(dataset.datasetPath);
-      filenames = getJobFilenames(all, job.imageStart, job.imageEnd);
+      filenames = job.firstImageName && job.lastImageName
+        ? getJobFilenamesByName(all, job.firstImageName, job.lastImageName)
+        : getJobFilenames(all, job.imageStart, job.imageEnd);
     }
   }
 

@@ -636,7 +636,7 @@ export default function DatasetDetailPage() {
                       <span style={styles.tdJob}>#{job.jobIndex}</span>
                       <span style={styles.tdRange}>
                         {job.imageStart}–{job.imageEnd}
-                        <small style={styles.tdRangeSub}> ({job.imageEnd - job.imageStart + 1} imgs)</small>
+                        <small style={styles.tdRangeSub}> ({job.currentImageCount ?? (job.imageEnd - job.imageStart + 1)} imgs)</small>
                       </span>
                       <span style={styles.tdStatus}>
                         <span style={{ ...styles.statusBadge, background: STATUS_COLOR[job.status] + '22', color: STATUS_COLOR[job.status] }}>
