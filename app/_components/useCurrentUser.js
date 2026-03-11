@@ -5,10 +5,14 @@ import { useState, useEffect } from 'react';
 export function useCurrentUser() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [dbOffline, setDbOffline] = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me')
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (r.status === 503) { setDbOffline(true); return null; }
+        return r.ok ? r.json() : null;
+      })
       .then((data) => {
         setUser(data?.user ?? null);
         setLoading(false);
@@ -16,5 +20,5 @@ export function useCurrentUser() {
       .catch(() => setLoading(false));
   }, []);
 
-  return { user, loading };
+  return { user, loading, dbOffline };
 }

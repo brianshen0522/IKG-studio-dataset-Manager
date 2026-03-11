@@ -25,6 +25,10 @@ function LoginForm() {
         body: JSON.stringify({ username, password })
       });
       const data = await res.json();
+      if (res.status === 503) {
+        setError('Database is offline. Please contact your administrator.');
+        return;
+      }
       if (!res.ok) {
         setError(data.error || 'Login failed');
         return;

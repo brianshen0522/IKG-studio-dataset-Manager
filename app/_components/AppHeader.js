@@ -2,11 +2,12 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useCurrentUser } from './useCurrentUser';
+import DbOfflineBanner from './DbOfflineBanner';
 
 export default function AppHeader({ title, backHref, backLabel }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user } = useCurrentUser();
+  const { user, dbOffline } = useCurrentUser();
 
   const isAdmin = user?.role === 'admin';
   const isDM = user?.role === 'data-manager';
@@ -17,6 +18,8 @@ export default function AppHeader({ title, backHref, backLabel }) {
     router.push('/login');
     router.refresh();
   }
+
+  if (dbOffline) return <DbOfflineBanner />;
 
   return (
     <header style={styles.header}>
