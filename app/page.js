@@ -70,6 +70,13 @@ function AddDatasetModal({ onClose, onCreated }) {
   const [showPathBrowser, setShowPathBrowser] = useState(false);
   const [showClassFileBrowser, setShowClassFileBrowser] = useState(false);
 
+  // Duplicate detection config
+  const [dupRule, setDupRule] = useState(null);         // auto-resolved from server
+  const [dupAction, setDupAction] = useState('');       // '' = use auto
+  const [dupLabels, setDupLabels] = useState('');       // '' = use auto
+  const [dupThreshold, setDupThreshold] = useState('');  // '' = use auto
+  const [dupDebug, setDupDebug] = useState(null);       // null = use auto
+
   useEffect(() => {
     let cancelled = false;
 
@@ -116,6 +123,30 @@ function AddDatasetModal({ onClose, onCreated }) {
     };
   }, [classFile]);
 
+  // Fetch matching duplicate rule whenever path changes
+  useEffect(() => {
+    const trimmed = path.trim();
+    if (!trimmed) { setDupRule(null); return; }
+    let cancelled = false;
+    fetch(`/api/duplicate-rule?path=${encodeURIComponent(trimmed)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (!cancelled && data) setDupRule(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [path]);
+
+  function resetDupOverrides() {
+    setDupAction('');
+    setDupLabels('');
+    setDupThreshold('');
+    setDupDebug(null);
+  }
+
+  const effectiveAction    = dupAction    || dupRule?.action    || 'move';
+  const effectiveLabels    = dupLabels    !== '' ? Number(dupLabels)    : (dupRule?.labels    ?? 0);
+  const effectiveThreshold = dupThreshold !== '' ? Number(dupThreshold) : (dupRule?.iouThreshold ?? 0.8);
+  const effectiveDebug     = dupDebug     !== null ? dupDebug            : (dupRule?.debug      ?? false);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -130,6 +161,10 @@ function AddDatasetModal({ onClose, onCreated }) {
           classFile: classFile.trim() || null,
           pentagonFormat: obbFormat,
           obbMode: obbFormat ? obbMode : 'rectangle',
+          duplicateMode: effectiveAction,
+          duplicateLabels: effectiveLabels,
+          threshold: effectiveThreshold,
+          debug: effectiveDebug,
         }),
       });
       const data = await res.json();
@@ -231,6 +266,80 @@ function AddDatasetModal({ onClose, onCreated }) {
               </select>
             </div>
           )}
+
+          <div style={styles.sectionDivider} />
+
+          {/* Duplicate Detection Config */}
+          <div style={styles.field}>
+            <div style={styles.dupHeader}>
+              <span style={styles.label}>Duplicate Detection</span>
+              {dupRule && (
+                <span style={styles.dupBadge}>
+                  {dupRule.matchedPattern
+                    ? <>matched: <code style={styles.dupCode}>{dupRule.matchedPattern}</code></>
+                    : 'default'}
+                </span>
+              )}
+              {(dupAction || dupLabels !== '' || dupThreshold !== '' || dupDebug !== null) && (
+                <button type="button" style={styles.dupResetBtn} onClick={resetDupOverrides}>
+                  Reset to auto
+                </button>
+              )}
+            </div>
+
+            <div style={styles.dupGrid}>
+              <div style={styles.dupField}>
+                <label style={styles.dupLabel}>Action</label>
+                <select
+                  style={styles.select}
+                  value={dupAction || effectiveAction}
+                  onChange={(e) => setDupAction(e.target.value)}
+                >
+                  <option value="move">Move to duplicate/</option>
+                  <option value="delete">Delete</option>
+                  <option value="skip">Skip (no detection)</option>
+                </select>
+              </div>
+
+              <div style={styles.dupField}>
+                <label style={styles.dupLabel}>IoU Threshold</label>
+                <input
+                  style={styles.input}
+                  type="number"
+                  min="0" max="1" step="0.05"
+                  value={dupThreshold !== '' ? dupThreshold : effectiveThreshold}
+                  onChange={(e) => setDupThreshold(e.target.value)}
+                />
+              </div>
+
+              <div style={styles.dupField}>
+                <label style={styles.dupLabel}>Labels Limit <small style={styles.dupMeta}>(0 = all)</small></label>
+                <input
+                  style={styles.input}
+                  type="number"
+                  min="0" step="1"
+                  value={dupLabels !== '' ? dupLabels : effectiveLabels}
+                  onChange={(e) => setDupLabels(e.target.value)}
+                />
+              </div>
+
+              <div style={styles.dupField}>
+                <label style={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    style={styles.checkbox}
+                    checked={effectiveDebug}
+                    onChange={(e) => setDupDebug(e.target.checked)}
+                  />
+                  <span style={styles.dupLabel}>Debug mode</span>
+                </label>
+              </div>
+            </div>
+
+            {effectiveAction === 'skip' && (
+              <p style={styles.dupSkipNote}>Duplicate detection will be skipped for this dataset.</p>
+            )}
+          </div>
 
           {error && <p style={styles.errorMsg}>{error}</p>}
           <button type="submit" style={styles.submitBtn} disabled={loading}>
@@ -389,38 +498,38 @@ export default function DashboardPage() {
             <div style={styles.grid}>
               {datasets.map((d) => {
                 const dsJobs = jobs[d.id];
+                const scanning = !!d.hasRunningTask;
                 return (
                   <div
                     key={d.id}
-                    style={styles.card}
-                    onClick={() => router.push(`/datasets/${d.id}`)}
+                    style={{ ...styles.card, ...(scanning ? styles.cardScanning : {}) }}
+                    onClick={() => !scanning && router.push(`/datasets/${d.id}`)}
                     role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => e.key === 'Enter' && router.push(`/datasets/${d.id}`)}
+                    tabIndex={scanning ? -1 : 0}
+                    onKeyDown={(e) => !scanning && e.key === 'Enter' && router.push(`/datasets/${d.id}`)}
                   >
                     <div style={styles.cardHeader}>
                       <span style={styles.cardName}>{d.displayName || d.datasetPath.split('/').pop()}</span>
-                      <span style={styles.cardImages}>{d.totalImages} images</span>
+                      {scanning
+                        ? <span style={styles.scanningBadge}>⟳ Scanning…</span>
+                        : <span style={styles.cardImages}>{d.totalImages} images</span>
+                      }
                     </div>
                     <p style={styles.cardPath}>{d.datasetPath}</p>
                     <div style={styles.cardActions}>
                       <button
                         type="button"
-                        style={styles.secondaryBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDatasetViewer(d.id);
-                        }}
+                        style={{ ...styles.secondaryBtn, ...(scanning ? styles.btnDisabled : {}) }}
+                        disabled={scanning}
+                        onClick={(e) => { e.stopPropagation(); if (!scanning) openDatasetViewer(d.id); }}
                       >
                         Open Viewer
                       </button>
                       <button
                         type="button"
-                        style={styles.openBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDatasetEditor(d.id);
-                        }}
+                        style={{ ...styles.openBtn, ...(scanning ? styles.btnDisabled : {}) }}
+                        disabled={scanning}
+                        onClick={(e) => { e.stopPropagation(); if (!scanning) openDatasetEditor(d.id); }}
                       >
                         Open Editor
                       </button>
@@ -674,6 +783,18 @@ const styles = {
     color: '#9ba9c3',
     whiteSpace: 'nowrap',
   },
+  cardScanning: {
+    opacity: 0.65,
+    cursor: 'not-allowed',
+    borderColor: '#2f7ff566',
+  },
+  scanningBadge: {
+    fontSize: '11px', fontWeight: 700, color: '#2f7ff5',
+    background: '#2f7ff522', borderRadius: '4px', padding: '2px 8px', whiteSpace: 'nowrap',
+  },
+  btnDisabled: {
+    opacity: 0.4, cursor: 'not-allowed',
+  },
   cardPath: {
     fontSize: '11px',
     color: '#5a6a8a',
@@ -923,6 +1044,30 @@ const styles = {
   sectionDivider: {
     borderTop: '1px solid #1b2940',
     margin: '4px 0',
+  },
+  dupHeader: {
+    display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap',
+  },
+  dupBadge: {
+    fontSize: '11px', color: '#9ba9c3',
+    background: '#1b2940', borderRadius: '4px', padding: '2px 7px',
+  },
+  dupCode: { color: '#e45d25', fontFamily: 'monospace', fontSize: '11px' },
+  dupResetBtn: {
+    background: 'transparent', border: '1px solid #25344d', borderRadius: '4px',
+    color: '#5a6a8a', cursor: 'pointer', fontSize: '11px', padding: '2px 8px',
+    marginLeft: 'auto',
+  },
+  dupGrid: {
+    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
+  },
+  dupField: { display: 'flex', flexDirection: 'column', gap: '5px' },
+  dupLabel: { fontSize: '11px', color: '#9ba9c3', fontWeight: 600 },
+  dupMeta: { color: '#5a6a8a', fontWeight: 400 },
+  dupSkipNote: {
+    fontSize: '11px', color: '#f1b11a',
+    background: 'rgba(241,177,26,0.08)', border: '1px solid rgba(241,177,26,0.2)',
+    borderRadius: '5px', padding: '6px 10px', margin: '6px 0 0',
   },
   checkboxRow: {
     display: 'flex',

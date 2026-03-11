@@ -21,6 +21,8 @@ function rowToDataset(row) {
     obbMode: row.obb_mode,
     classFile: row.class_file,
     duplicateMode: row.duplicate_mode,
+    duplicateLabels: row.duplicate_labels ?? 0,
+    hasRunningTask: row.has_running_task === true || row.has_running_task === 't' || row.has_running_task == 1,
     createdAt: row.created_at ? row.created_at.toISOString() : null,
     updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
     // Aggregated fields (only present when joined)
@@ -67,12 +69,32 @@ function rowToJobUserState(row) {
 }
 
 // ---------------------------------------------------------------------------
+// pg-boss helper — returns a Set of dataset IDs that have an active scan.
+// Gracefully returns an empty Set if the pgboss schema doesn't exist yet.
+// ---------------------------------------------------------------------------
+
+async function getRunningDatasetIds(client) {
+  try {
+    const result = await client.query(`
+      SELECT DISTINCT (data->>'datasetId')::integer AS dataset_id
+      FROM pgboss.job
+      WHERE name = 'duplicate-scan'
+        AND state IN ('created', 'retry', 'active')
+    `);
+    return new Set(result.rows.map((r) => r.dataset_id));
+  } catch {
+    // pgboss schema not yet created (boss.start() hasn't run)
+    return new Set();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Dataset CRUD
 // ---------------------------------------------------------------------------
 
 /**
- * Create a dataset and auto-split it into jobs.
- * Returns the created dataset with its jobs.
+ * Create a dataset record only (no jobs yet).
+ * Jobs are created after the duplicate scan completes via createDatasetJobs().
  */
 export async function createDataset({
   datasetPath,
@@ -84,54 +106,82 @@ export async function createDataset({
   pentagonFormat = false,
   obbMode = 'rectangle',
   classFile = null,
-  duplicateMode = 'move'
+  duplicateMode = 'move',
+  duplicateLabels = 0
 }) {
   await ensureInitialized();
 
   const normalizedPath = path.resolve(datasetPath);
-  const filenames = scanImageFilenames(normalizedPath);
-  const totalImages = filenames.length;
-  const jobRanges = computeJobRanges(totalImages, jobSize);
 
   const client = await getPool().connect();
   try {
-    await client.query('BEGIN');
-
     const dsResult = await client.query(
       `INSERT INTO datasets (
         dataset_path, display_name, created_by, total_images, job_size,
-        threshold, debug, pentagon_format, obb_mode, class_file, duplicate_mode
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        threshold, debug, pentagon_format, obb_mode, class_file, duplicate_mode, duplicate_labels
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING *`,
       [
         normalizedPath,
         displayName || null,
         createdBy,
-        totalImages,
+        0,            // total_images set to 0 until jobs are created after scan
         jobSize,
         threshold,
         debug,
         pentagonFormat,
         obbMode,
         classFile,
-        duplicateMode
+        duplicateMode,
+        duplicateLabels
       ]
     );
     const dataset = rowToDataset(dsResult.rows[0]);
+    return { dataset, jobCount: 0 };
+  } finally {
+    client.release();
+  }
+}
 
-    // Insert jobs in bulk
+/**
+ * Scan the dataset path on disk and create jobs.
+ * Called by the duplicate-scan worker after duplicates have been removed.
+ */
+export async function createDatasetJobs(datasetId) {
+  await ensureInitialized();
+
+  const client = await getPool().connect();
+  try {
+    const dsRow = await client.query('SELECT * FROM datasets WHERE id = $1', [datasetId]);
+    if (!dsRow.rows[0]) throw new Error(`Dataset ${datasetId} not found`);
+    const dataset = rowToDataset(dsRow.rows[0]);
+
+    const filenames = scanImageFilenames(dataset.datasetPath);
+    const totalImages = filenames.length;
+    const jobRanges = computeJobRanges(totalImages, dataset.jobSize);
+
+    await client.query('BEGIN');
+
+    // Remove any existing jobs (safe to re-run)
+    await client.query('DELETE FROM jobs WHERE dataset_id = $1', [datasetId]);
+
     for (const { jobIndex, imageStart, imageEnd } of jobRanges) {
       const firstName = filenames[imageStart - 1] || null;
-      const lastName = filenames[imageEnd - 1] || null;
+      const lastName  = filenames[imageEnd  - 1] || null;
       await client.query(
         `INSERT INTO jobs (dataset_id, job_index, image_start, image_end, first_image_name, last_image_name)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [dataset.id, jobIndex, imageStart, imageEnd, firstName, lastName]
+        [datasetId, jobIndex, imageStart, imageEnd, firstName, lastName]
       );
     }
 
+    await client.query(
+      'UPDATE datasets SET total_images = $1, updated_at = NOW() WHERE id = $2',
+      [totalImages, datasetId]
+    );
+
     await client.query('COMMIT');
-    return { dataset, jobCount: jobRanges.length };
+    return { totalImages, jobCount: jobRanges.length };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -167,7 +217,6 @@ export async function getAllDatasets({ role, userId } = {}) {
         baseQuery + ' GROUP BY d.id ORDER BY d.created_at ASC'
       );
     } else {
-      // Regular users see only datasets with jobs assigned to them
       result = await client.query(
         baseQuery +
         ' WHERE d.id IN (SELECT DISTINCT dataset_id FROM jobs WHERE assigned_to = $1)' +
@@ -176,7 +225,12 @@ export async function getAllDatasets({ role, userId } = {}) {
       );
     }
 
-    return result.rows.map(rowToDataset);
+    const runningIds = await getRunningDatasetIds(client);
+    return result.rows.map((row) => {
+      const d = rowToDataset(row);
+      d.hasRunningTask = runningIds.has(d.id);
+      return d;
+    });
   } finally {
     client.release();
   }
@@ -200,7 +254,12 @@ export async function getDatasetById(id) {
        GROUP BY d.id`,
       [id]
     );
-    return rowToDataset(result.rows[0]);
+    const dataset = rowToDataset(result.rows[0]);
+    if (dataset) {
+      const runningIds = await getRunningDatasetIds(client);
+      dataset.hasRunningTask = runningIds.has(dataset.id);
+    }
+    return dataset;
   } finally {
     client.release();
   }

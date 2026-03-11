@@ -4,6 +4,7 @@ import { getUserFromRequest } from '@/lib/auth';
 import { getSetting } from '@/lib/db';
 import { createDataset, getAllDatasets } from '@/lib/db-datasets';
 import { canCreateDataset } from '@/lib/permissions';
+import { getBoss, ensureBossStarted } from '@/lib/pg-boss';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,7 @@ export const POST = withApiLogging(async function handler(req) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { datasetPath, displayName, threshold, debug, pentagonFormat, obbMode, classFile, duplicateMode } = body || {};
+  const { datasetPath, displayName, threshold, debug, pentagonFormat, obbMode, classFile, duplicateMode, duplicateLabels } = body || {};
   if (!datasetPath) {
     return NextResponse.json({ error: 'datasetPath is required' }, { status: 400 });
   }
@@ -49,8 +50,35 @@ export const POST = withApiLogging(async function handler(req) {
       pentagonFormat: pentagonFormat ?? false,
       obbMode: obbMode || 'rectangle',
       classFile: classFile || null,
-      duplicateMode: duplicateMode || 'move'
+      duplicateMode: duplicateMode || 'move',
+      duplicateLabels: duplicateLabels ?? 0
     });
+
+    // Enqueue duplicate scan via pg-boss
+    try {
+      await ensureBossStarted();
+      const boss = getBoss();
+      // pg-boss v10: send() takes a single object { name, data }
+      const jobId = await boss.send({
+        name: 'duplicate-scan',
+        data: {
+          datasetId: result.dataset.id,
+          datasetPath: result.dataset.datasetPath,
+          datasetName: result.dataset.displayName || null,
+          createdBy: Number(actor.sub),
+          duplicateMode: duplicateMode || 'move',
+          duplicateLabels: duplicateLabels ?? 0,
+          threshold: threshold ?? 0.8,
+          debug: debug ?? false,
+        },
+      });
+      if (!jobId) console.error('[pg-boss] send returned null — queue may not exist');
+      else console.log('[pg-boss] duplicate-scan enqueued:', jobId);
+    } catch (bossErr) {
+      console.error('[pg-boss] failed to enqueue duplicate-scan:', bossErr.message);
+      // Dataset was created successfully — don't fail the request over the queue
+    }
+
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     if (err.code === '23505') {

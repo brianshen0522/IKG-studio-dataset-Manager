@@ -36,11 +36,8 @@ RUN npm install --omit=dev && npm cache clean --force
 
 # Python dependencies for FiftyOne worker
 RUN "${VIRTUAL_ENV}/bin/pip" install --no-cache-dir \
-    fiftyone \
     opencv-python-headless \
-    numpy \
-    pymongo \
-    label-studio-sdk
+    numpy
 
 # Application code
 COPY . .

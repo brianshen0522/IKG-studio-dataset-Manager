@@ -31,15 +31,12 @@ services:
       - postgres
     ports:
       - "${MANAGER_PORT:-3000}:${MANAGER_PORT:-3000}"
-      - "${PORT_START}-${PORT_END}:${PORT_START}-${PORT_END}"
     volumes:
       - ${DATASET_BASE_PATH}:${DATASET_BASE_PATH}:rw
       - pm2-logs:/root/.pm2/logs
       - ./deletion_logs:/app/deletion_logs:rw
     environment:
       - DATASET_BASE_PATH=${DATASET_BASE_PATH}
-      - PORT_START=${PORT_START}
-      - PORT_END=${PORT_END}
       - MANAGER_PORT=${MANAGER_PORT:-3000}
       - PUBLIC_ADDRESS=${PUBLIC_ADDRESS:-localhost}
       - DEFAULT_IOU_THRESHOLD=${DEFAULT_IOU_THRESHOLD:-0.8}

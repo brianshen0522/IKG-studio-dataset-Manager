@@ -61,7 +61,7 @@ export async function initDatabase() {
     // ---- Seed default job_size ----
     await client.query(`
       INSERT INTO system_settings (key, value)
-      VALUES ('job_size', '500')
+      VALUES ('job_size', '1500')
       ON CONFLICT (key) DO NOTHING;
     `);
 
@@ -79,10 +79,15 @@ export async function initDatabase() {
         pentagon_format BOOLEAN DEFAULT false,
         obb_mode        VARCHAR(50) DEFAULT 'rectangle',
         class_file      TEXT,
-        duplicate_mode  VARCHAR(50) DEFAULT 'move',
-        created_at      TIMESTAMP DEFAULT NOW(),
-        updated_at      TIMESTAMP DEFAULT NOW()
+        duplicate_mode   VARCHAR(50) DEFAULT 'move',
+        duplicate_labels INTEGER NOT NULL DEFAULT 0,
+        created_at       TIMESTAMP DEFAULT NOW(),
+        updated_at       TIMESTAMP DEFAULT NOW()
       );
+    `);
+
+    await client.query(`
+      ALTER TABLE datasets ADD COLUMN IF NOT EXISTS duplicate_labels INTEGER NOT NULL DEFAULT 0;
     `);
 
     // ---- Jobs ----
@@ -125,6 +130,20 @@ export async function initDatabase() {
         updated_at        TIMESTAMP DEFAULT NOW(),
         UNIQUE(job_id, user_id)
       );
+    `);
+
+    // ---- Task logs (log lines for pg-boss duplicate-scan jobs) ----
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS task_logs (
+        id      SERIAL PRIMARY KEY,
+        job_id  UUID NOT NULL,
+        level   VARCHAR(10) NOT NULL DEFAULT 'info',
+        message TEXT NOT NULL,
+        ts      TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_task_logs_job_id ON task_logs(job_id);
     `);
 
     // ---- Job assignment history (audit log) ----

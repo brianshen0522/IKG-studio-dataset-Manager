@@ -48,6 +48,14 @@ export default function AppHeader({ title, backHref, backLabel }) {
             Datasets
           </button>
         )}
+        {isAdminOrDM && (
+          <button
+            style={{ ...styles.navBtn, ...(pathname?.startsWith('/admin/tasks') ? styles.navBtnActive : {}) }}
+            onClick={() => router.push('/admin/tasks')}
+          >
+            Tasks
+          </button>
+        )}
         {isAdmin && (
           <>
             <button

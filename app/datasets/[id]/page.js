@@ -524,10 +524,13 @@ export default function DatasetDetailPage() {
           <div style={styles.dsActions}>
             {isAdminOrDM && dataset && (
               <>
-                <button style={styles.secondaryBtn} onClick={openDatasetViewer}>
+                {dataset.hasRunningTask && (
+                  <span style={styles.scanningBadge}>⟳ Scanning duplicates…</span>
+                )}
+                <button style={styles.secondaryBtn} onClick={openDatasetViewer} disabled={dataset.hasRunningTask}>
                   Open Viewer
                 </button>
-                <button style={styles.openBtn} onClick={openDatasetEditor}>
+                <button style={styles.openBtn} onClick={openDatasetEditor} disabled={dataset.hasRunningTask}>
                   Open Editor
                 </button>
                 <button style={styles.actionBtn} onClick={() => setEditModal(true)}>
@@ -866,6 +869,11 @@ const styles = {
     background: 'transparent', border: '1px solid #d24343', borderRadius: '7px',
     color: '#d24343', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
     padding: '8px 16px',
+  },
+  scanningBadge: {
+    fontSize: '12px', fontWeight: 700, color: '#2f7ff5',
+    background: '#2f7ff522', border: '1px solid #2f7ff544',
+    borderRadius: '6px', padding: '6px 12px', whiteSpace: 'nowrap',
   },
   errorMsg: {
     color: '#f87171', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)',
