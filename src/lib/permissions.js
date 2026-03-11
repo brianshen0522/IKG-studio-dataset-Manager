@@ -49,11 +49,11 @@ export function canAccessJob(actor, job) {
   return job.assignedTo === Number(actor.sub);
 }
 
-/** Can the actor edit labels (save/delete) for a job? */
+/** Can the actor edit labels (save/delete) for a job?
+ *  Only the assigned user may edit — admin/DM have no edit bypass.
+ */
 export function canEditJob(actor, job) {
   if (!actor) return false;
-  if (isAdminOrDM(actor)) return true;
-  // Regular user: must be the assignee, job must be in an editable state
   return (
     job.assignedTo === Number(actor.sub) &&
     (job.status === 'unlabelled' || job.status === 'labeling')

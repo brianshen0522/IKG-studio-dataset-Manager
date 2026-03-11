@@ -557,6 +557,16 @@ export async function resetJob(jobId, actorId, { keepData = true } = {}) {
       [newStatus, jobId]
     );
 
+    // Clear the assigned user's editor state (last image, filter, sort)
+    if (job.assigned_to) {
+      await client.query(
+        `UPDATE job_user_state
+         SET last_image_path = NULL, filter = NULL, preview_sort_mode = NULL, updated_at = NOW()
+         WHERE job_id = $1 AND user_id = $2`,
+        [jobId, job.assigned_to]
+      );
+    }
+
     await recordHistory(client, {
       jobId,
       fromUserId: job.assigned_to,
@@ -597,6 +607,31 @@ export async function reassignJob(jobId, toUserId, actorId, { keepData = true } 
        WHERE id = $2 RETURNING *`,
       [toUserId, jobId]
     );
+
+    if (keepData && job.assigned_to && job.assigned_to !== toUserId) {
+      // Copy previous user's editor state (last image, filter, sort) to the new user
+      const stateRes = await client.query(
+        'SELECT * FROM job_user_state WHERE job_id = $1 AND user_id = $2',
+        [jobId, job.assigned_to]
+      );
+      if (stateRes.rows.length > 0) {
+        const s = stateRes.rows[0];
+        await client.query(
+          `INSERT INTO job_user_state (job_id, user_id, last_image_path, filter, preview_sort_mode, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (job_id, user_id) DO UPDATE
+             SET last_image_path = $3, filter = $4, preview_sort_mode = $5, updated_at = NOW()`,
+          [jobId, toUserId, s.last_image_path, s.filter, s.preview_sort_mode]
+        );
+      }
+    } else if (!keepData && toUserId) {
+      // Clear any existing state for the new user (fresh start)
+      await client.query(
+        `UPDATE job_user_state SET last_image_path = NULL, filter = NULL, preview_sort_mode = NULL, updated_at = NOW()
+         WHERE job_id = $1 AND user_id = $2`,
+        [jobId, toUserId]
+      );
+    }
 
     await recordHistory(client, {
       jobId,

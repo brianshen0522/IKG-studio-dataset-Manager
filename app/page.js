@@ -543,14 +543,6 @@ export default function DashboardPage() {
                           >
                             Open Viewer
                           </button>
-                          <button
-                            type="button"
-                            style={{ ...styles.openBtn, ...(scanning ? styles.btnDisabled : {}) }}
-                            disabled={scanning}
-                            onClick={(e) => { e.stopPropagation(); if (!scanning) openDatasetEditor(d.id); }}
-                          >
-                            Open Editor
-                          </button>
                         </div>
                         {dsJobs ? (
                           <ProgressBar jobs={dsJobs} />

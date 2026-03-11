@@ -548,9 +548,6 @@ export default function DatasetDetailPage() {
                     View Duplicates
                   </button>
                 )}
-                <button style={styles.openBtn} onClick={openDatasetEditor} disabled={dataset.hasRunningTask}>
-                  Open Editor
-                </button>
                 <button style={styles.actionBtn} onClick={() => setEditModal(true)}>
                   Edit Dataset
                 </button>
@@ -672,12 +669,8 @@ export default function DatasetDetailPage() {
                       <span style={styles.tdActions}>
                         {/* Admin/DM actions */}
                         {isAdminOrDM && (
-                          <>
-                            <button style={styles.secondaryBtnSmall} disabled={busy}
-                              onClick={() => openJobViewer(job.id)}>Viewer</button>
-                            <button style={styles.openBtnSmall} disabled={busy}
-                              onClick={() => openJobEditor(job.id)}>Editor</button>
-                          </>
+                          <button style={styles.secondaryBtnSmall} disabled={busy}
+                            onClick={() => openJobViewer(job.id)}>Viewer</button>
                         )}
                         {isAdminOrDM && job.status === 'unassigned' && (
                           <button style={styles.actionBtn} disabled={busy}
