@@ -13,12 +13,12 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
     environment:
-      - POSTGRES_DB=fiftyone_manager
-      - POSTGRES_USER=fiftyone
-      - POSTGRES_PASSWORD=fiftyone
+      - POSTGRES_DB=datasets_manager
+      - POSTGRES_USER=studio
+      - POSTGRES_PASSWORD=studio
     restart: unless-stopped
 
-  fiftyone-manager:
+  IKG-studio-dataset-manager:
     build: .
     container_name: IKG-studio-dataset-manager
     deploy:
@@ -45,7 +45,7 @@ services:
       - DEFAULT_IOU_THRESHOLD=${DEFAULT_IOU_THRESHOLD:-0.8}
       - DEFAULT_DEBUG_MODE=${DEFAULT_DEBUG_MODE:-false}
       - LABEL_EDITOR_PRELOAD_COUNT=${LABEL_EDITOR_PRELOAD_COUNT:-25}
-      - DATABASE_URL=postgresql://fiftyone:fiftyone@postgres:5432/fiftyone_manager
+      - DATABASE_URL=postgresql://studio:studio@postgres:5432/datasets_manager
       - AVAILABLE_OBB_MODES=${AVAILABLE_OBB_MODES:-rectangle,4point}
       - DUPLICATE_RULES=${DUPLICATE_RULES:-}
       - DUPLICATE_DEFAULT_ACTION=${DUPLICATE_DEFAULT_ACTION:-move}
