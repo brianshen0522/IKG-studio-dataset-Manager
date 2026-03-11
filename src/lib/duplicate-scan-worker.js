@@ -93,12 +93,29 @@ function labelsAreSimilar(labels1, labels2, threshold, limit) {
 // ---------------------------------------------------------------------------
 
 function processGroup(datasetPath, groupIndices, allPaths, action, debug, log) {
-  const toProcess = debug ? groupIndices : groupIndices.slice(1);
+  const toProcess = groupIndices.slice(1); // duplicates to move/delete
   const processed = [];
+
+  // In debug mode with move action: copy the original (index 0) into duplicate/ for comparison
+  if (debug && action === 'move' && groupIndices.length > 1) {
+    const origSrc = allPaths[groupIndices[0]];
+    const origLabelSrc = origSrc
+      .replace(/[/\\]images[/\\]/, (sep) => sep.replace('images', 'labels'))
+      .replace(/\.[^.]+$/, '.txt');
+
+    const destDir = path.join(datasetPath, 'duplicate');
+    fs.mkdirSync(path.join(destDir, 'images'), { recursive: true });
+    fs.mkdirSync(path.join(destDir, 'labels'), { recursive: true });
+
+    fs.copyFileSync(origSrc, path.join(destDir, 'images', path.basename(origSrc)));
+    if (fs.existsSync(origLabelSrc)) {
+      fs.copyFileSync(origLabelSrc, path.join(destDir, 'labels', path.basename(origLabelSrc)));
+    }
+    processed.push(`Copied (original): ${path.basename(origSrc)} → duplicate/`);
+  }
 
   for (const idx of toProcess) {
     const imgSrc = allPaths[idx];
-    const ext = path.extname(imgSrc);
     const labelSrc = imgSrc
       .replace(/[/\\]images[/\\]/, (sep) => sep.replace('images', 'labels'))
       .replace(/\.[^.]+$/, '.txt');
