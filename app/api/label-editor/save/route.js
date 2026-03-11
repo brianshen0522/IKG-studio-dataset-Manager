@@ -11,44 +11,34 @@ export const dynamic = 'force-dynamic';
 
 export const POST = withApiLogging(async (req) => {
   try {
-    const body = await req.json();
-    const { labelPath, content, basePath, relativeLabelPath, jobId } = body;
+    const { jobId, imageName, content } = await req.json();
 
-    // If jobId supplied, verify access
-    if (jobId) {
-      const actor = await getUserFromRequest(req);
-      if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      const job = await getJobById(Number(jobId));
-      if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
-      if (!canEditJob(actor, job)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
-      const dataset = await getDatasetById(job.datasetId);
-      if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
-
-      const folderPath = relativeLabelPath
-        ? relativeLabelPath.replace(/\\/g, '/').split('/').slice(0, -1).join('/').replace(/\/labels$/, '/images')
-        : 'images';
-      const { labelPathSet } = buildJobEditorPaths(dataset.datasetPath, job, folderPath);
-      if (relativeLabelPath && !isJobLabelPathAllowed(relativeLabelPath, labelPathSet)) {
-        return NextResponse.json({ error: 'Label is outside this job scope' }, { status: 403 });
-      }
+    if (!jobId || !imageName) {
+      return NextResponse.json({ error: 'Missing jobId or imageName' }, { status: 400 });
     }
 
-    let fullLabelPath = labelPath;
-    if (basePath && relativeLabelPath) {
-      fullLabelPath = path.join(basePath, relativeLabelPath);
-    }
-    if (!fullLabelPath) {
-      return NextResponse.json({ error: 'Missing label path' }, { status: 400 });
+    const actor = await getUserFromRequest(req);
+    if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const job = await getJobById(Number(jobId));
+    if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    if (!canEditJob(actor, job)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const dataset = await getDatasetById(job.datasetId);
+    if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
+
+    const { labelPathSet } = buildJobEditorPaths(dataset.datasetPath, job, 'images');
+    const relativeLabelPath = `labels/${imageName.replace(/\.[^.]+$/i, '.txt')}`;
+
+    if (!isJobLabelPathAllowed(relativeLabelPath, labelPathSet)) {
+      return NextResponse.json({ error: 'Image is outside this job scope' }, { status: 403 });
     }
 
-    const labelDir = path.dirname(fullLabelPath);
-    if (!fs.existsSync(labelDir)) {
-      fs.mkdirSync(labelDir, { recursive: true });
-    }
+    const fullLabelPath = path.join(dataset.datasetPath, relativeLabelPath);
+    fs.mkdirSync(path.dirname(fullLabelPath), { recursive: true });
     fs.writeFileSync(fullLabelPath, content || '', 'utf-8');
 
-    return NextResponse.json({ success: true, message: 'Labels saved successfully' });
+    return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -14,27 +14,13 @@ export const dynamic = 'force-dynamic';
 
 export const POST = withApiLogging(async (req) => {
   try {
-    const { basePath, imagePaths, instanceName, maxSize, jobId, view } = await req.json();
-
-    if (!imagePaths || !Array.isArray(imagePaths)) {
-      return NextResponse.json({ error: 'Missing imagePaths array' }, { status: 400 });
-    }
+    const { basePath, imagePaths, imageNames, instanceName, maxSize, jobId, view } = await req.json();
 
     let resolvedBasePath = basePath;
-    if (!resolvedBasePath && instanceName) {
-      const instance = await getInstanceByName(instanceName);
-      if (!instance) {
-        return NextResponse.json({ error: `Instance not found: ${instanceName}` }, { status: 404 });
-      }
-      resolvedBasePath = instance.datasetPath;
-    }
+    let resolvedImagePaths = imagePaths;
 
-    if (!resolvedBasePath) {
-      return NextResponse.json({ error: 'Missing basePath or instanceName' }, { status: 400 });
-    }
-
-    let allowedImagePathSet = null;
-    if (jobId) {
+    // Job-based mode: { jobId, imageNames } — no basePath needed from client
+    if (jobId && imageNames) {
       const actor = await getUserFromRequest(req);
       if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -45,11 +31,28 @@ export const POST = withApiLogging(async (req) => {
       const dataset = await getDatasetById(job.datasetId);
       if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
 
-      if (view === 'duplicates') {
-        allowedImagePathSet = scanFolderImagePaths(dataset.datasetPath, 'duplicate/images').imagePathSet;
-      } else {
-        const folderPath = imagePaths.find(Boolean)?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images';
-        allowedImagePathSet = buildJobEditorPaths(dataset.datasetPath, job, folderPath).imagePathSet;
+      const folder = view === 'duplicates' ? 'duplicate/images' : 'images';
+      const { imagePathSet } = view === 'duplicates'
+        ? scanFolderImagePaths(dataset.datasetPath, folder)
+        : buildJobEditorPaths(dataset.datasetPath, job, folder);
+
+      resolvedBasePath = dataset.datasetPath;
+      resolvedImagePaths = imageNames
+        .filter((n) => imagePathSet.has(`${folder}/${n}`))
+        .map((n) => `${folder}/${n}`);
+    } else {
+      if (!resolvedBasePath && instanceName) {
+        const instance = await getInstanceByName(instanceName);
+        if (!instance) {
+          return NextResponse.json({ error: `Instance not found: ${instanceName}` }, { status: 404 });
+        }
+        resolvedBasePath = instance.datasetPath;
+      }
+      if (!resolvedBasePath) {
+        return NextResponse.json({ error: 'Missing basePath or instanceName' }, { status: 400 });
+      }
+      if (!Array.isArray(resolvedImagePaths)) {
+        return NextResponse.json({ error: 'Missing imagePaths array' }, { status: 400 });
       }
     }
 
@@ -60,11 +63,8 @@ export const POST = withApiLogging(async (req) => {
     const boundary = '----ThumbnailBatch';
     const parts = [];
 
-    for (const imagePath of imagePaths) {
+    for (const imagePath of resolvedImagePaths) {
       if (!imagePath || typeof imagePath !== 'string') {
-        continue;
-      }
-      if (allowedImagePathSet && !isJobImagePathAllowed(imagePath, allowedImagePathSet)) {
         continue;
       }
       const fullPath = path.resolve(path.join(baseResolved, imagePath));

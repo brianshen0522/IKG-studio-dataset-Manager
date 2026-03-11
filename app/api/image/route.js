@@ -31,23 +31,8 @@ export const GET = withApiLogging(async (req) => {
 
     let imagePath = fullPath;
 
-    // Mode 1: Short URL with instance name + image filename (with extension)
-    if (instanceName && imageName) {
-      const instance = await getInstanceByName(instanceName);
-
-      if (!instance) {
-        return NextResponse.json({ error: `Instance not found: ${instanceName}` }, { status: 404 });
-      }
-
-      imagePath = path.join(instance.datasetPath, 'images', imageName);
-    }
-    // Mode 2: basePath + relativePath
-    else if (basePath && relativePath) {
-      imagePath = path.join(basePath, relativePath);
-    }
-    // Mode 3: fullPath (already set above)
-
-    if (jobId) {
+    // Mode 1: jobId + imageName (job-based, no server path needed from client)
+    if (jobId && imageName && !instanceName) {
       const actor = await getUserFromRequest(req);
       if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -58,11 +43,26 @@ export const GET = withApiLogging(async (req) => {
       const dataset = await getDatasetById(job.datasetId);
       if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
 
-      const { imagePathSet } = buildJobEditorPaths(dataset.datasetPath, job, relativePath?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images');
-      if (!isJobImagePathAllowed(relativePath, imagePathSet)) {
+      const { imagePathSet } = buildJobEditorPaths(dataset.datasetPath, job, 'images');
+      if (!isJobImagePathAllowed(`images/${imageName}`, imagePathSet)) {
         return NextResponse.json({ error: 'Image is outside this job scope' }, { status: 403 });
       }
+
+      imagePath = path.join(dataset.datasetPath, 'images', imageName);
     }
+    // Mode 2: Short URL with instance name + image filename
+    else if (instanceName && imageName) {
+      const instance = await getInstanceByName(instanceName);
+      if (!instance) {
+        return NextResponse.json({ error: `Instance not found: ${instanceName}` }, { status: 404 });
+      }
+      imagePath = path.join(instance.datasetPath, 'images', imageName);
+    }
+    // Mode 3: basePath + relativePath (legacy)
+    else if (basePath && relativePath) {
+      imagePath = path.join(basePath, relativePath);
+    }
+    // Mode 4: fullPath (already set above)
 
     if (!imagePath || !fs.existsSync(imagePath)) {
       return NextResponse.json({ error: 'Image not found' }, { status: 404 });

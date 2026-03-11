@@ -4,21 +4,23 @@ import path from 'path';
 import { withApiLogging } from '@/lib/api-logger';
 import { getUserFromRequest } from '@/lib/auth';
 import { getDatasetById, getJobById } from '@/lib/db-datasets';
-import { buildJobEditorPaths, isJobImagePathAllowed, scanFolderImagePaths } from '@/lib/job-scope';
+import { buildJobEditorPaths, isJobImagePathAllowed } from '@/lib/job-scope';
 import { canAccessJob } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
 export const POST = withApiLogging(async (req) => {
   try {
-    const { basePath, imagePaths, jobId, view } = await req.json();
+    const body = await req.json();
+    const { jobId, imageNames, basePath, imagePaths, view } = body;
 
-    if (!basePath || !imagePaths || !Array.isArray(imagePaths)) {
-      return NextResponse.json({ error: 'Missing basePath or imagePaths array' }, { status: 400 });
-    }
-
-    let allowedImagePathSet = null;
+    // ── Job-based (new): { jobId, imageNames } ─────────────────────────────
     if (jobId) {
+      const names = imageNames ?? (imagePaths || []).map((p) => p.split('/').pop());
+      if (!Array.isArray(names)) {
+        return NextResponse.json({ error: 'Missing imageNames array' }, { status: 400 });
+      }
+
       const actor = await getUserFromRequest(req);
       if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -29,34 +31,43 @@ export const POST = withApiLogging(async (req) => {
       const dataset = await getDatasetById(job.datasetId);
       if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
 
-      if (view === 'duplicates') {
-        allowedImagePathSet = scanFolderImagePaths(dataset.datasetPath, 'duplicate/images').imagePathSet;
-      } else {
-        const folderPath = imagePaths.find(Boolean)?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images';
-        allowedImagePathSet = buildJobEditorPaths(dataset.datasetPath, job, folderPath).imagePathSet;
-      }
+      const { imagePathSet } = buildJobEditorPaths(dataset.datasetPath, job, 'images');
+
+      const labels = {};
+      await Promise.all(names.map(async (imageName) => {
+        if (!isJobImagePathAllowed(`images/${imageName}`, imagePathSet)) return;
+        const labelName = imageName.replace(/\.[^.]+$/i, '.txt');
+        const fullLabelPath = path.join(dataset.datasetPath, 'labels', labelName);
+        try {
+          labels[imageName] = fs.existsSync(fullLabelPath)
+            ? fs.readFileSync(fullLabelPath, 'utf-8')
+            : '';
+        } catch {
+          labels[imageName] = '';
+        }
+      }));
+
+      return NextResponse.json({ labels });
     }
 
-    // Process all labels in parallel
+    // ── Legacy path-based (fallback): { basePath, imagePaths } ─────────────
+    if (!basePath || !Array.isArray(imagePaths)) {
+      return NextResponse.json({ error: 'Missing jobId or basePath/imagePaths' }, { status: 400 });
+    }
+
     const labels = {};
     await Promise.all(imagePaths.map(async (imagePath) => {
-      if (allowedImagePathSet && !isJobImagePathAllowed(imagePath, allowedImagePathSet)) {
-        return;
-      }
       const labelPath = imagePath
         .replace('images/', 'labels/')
-        .replace(/\.(jpg|jpeg|png)$/i, '.txt');
+        .replace(/\.(jpg|jpeg|png|bmp|gif)$/i, '.txt');
       const fullLabelPath = path.join(basePath, labelPath);
-
-      let labelContent = '';
       try {
-        if (fs.existsSync(fullLabelPath)) {
-          labelContent = fs.readFileSync(fullLabelPath, 'utf-8');
-        }
-      } catch (err) {
-        // Ignore individual file errors
+        labels[imagePath] = fs.existsSync(fullLabelPath)
+          ? fs.readFileSync(fullLabelPath, 'utf-8')
+          : '';
+      } catch {
+        labels[imagePath] = '';
       }
-      labels[imagePath] = labelContent;
     }));
 
     return NextResponse.json({ labels });

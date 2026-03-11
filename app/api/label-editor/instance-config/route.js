@@ -49,21 +49,22 @@ export const GET = withApiLogging(async (req) => {
       const { basePath: datasetBasePath, folder: datasetFolder } = buildDatasetFolder(datasetPath);
       const folder = isDuplicateView ? 'duplicate/images' : datasetFolder;
 
-      let imagePaths = [];
+      let filenames = [];
       let imageMeta = {};
       if (isDuplicateView) {
-        const scanned = scanFolderImagePaths(datasetPath, folder);
-        imagePaths = scanned.imagePaths;
-        imageMeta = scanned.imageMeta;
+        const scanned = scanFolderImagePaths(datasetPath, 'duplicate/images');
+        filenames = scanned.imagePaths.map((p) => p.split('/').pop());
+        for (const [p, meta] of Object.entries(scanned.imageMeta)) {
+          imageMeta[p.split('/').pop()] = meta;
+        }
       } else {
-        const built = buildJobEditorPaths(datasetPath, job, folder);
-        imagePaths = built.imagePaths;
+        const built = buildJobEditorPaths(datasetPath, job, 'images');
+        filenames = built.filenames;
         for (const filename of built.filenames) {
           const fullImagePath = path.join(datasetPath, 'images', filename);
           try {
             const stat = fs.statSync(fullImagePath);
-            const editorPath = path.posix.join(folder.replace(/\\/g, '/').replace(/\/+$/, ''), filename);
-            imageMeta[editorPath] = {
+            imageMeta[filename] = {
               ctimeMs: stat.birthtimeMs || stat.ctimeMs,
               mtimeMs: stat.mtimeMs
             };
@@ -74,26 +75,17 @@ export const GET = withApiLogging(async (req) => {
       }
 
       return NextResponse.json({
-        // Job identity
         jobId: job.id,
         jobIndex: job.jobIndex,
         datasetId: dataset.id,
-        // Paths
-        basePath: isDuplicateView ? datasetPath : datasetBasePath,
-        folder,
-        datasetPath,
         view,
-        // Job range
         imageStart: job.imageStart,
         imageEnd: job.imageEnd,
-        totalImagesInJob: imagePaths.length,
-        images: imagePaths,
+        totalImagesInJob: filenames.length,
+        images: filenames,
         imageMeta,
-        // Settings
         obbMode: dataset.obbMode || 'rectangle',
-        classFile: dataset.classFile || null,
         labelEditorPreloadCount: CONFIG.labelEditorPreloadCount,
-        // Per-user state
         lastImagePath: userState?.lastImagePath || ''
       });
     }

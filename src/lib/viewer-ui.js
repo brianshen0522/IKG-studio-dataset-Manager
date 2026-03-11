@@ -107,8 +107,10 @@ export async function initViewer() {
 async function loadViewerClasses(fallbackInstanceName = '') {
   try {
     let clsUrl = '';
-    if (currentClassFile) {
-      clsUrl = `${API_BASE}/api/label-editor/classes?classFile=${encodeURIComponent(currentClassFile)}`;
+    if (currentJobId) {
+      clsUrl = `${API_BASE}/api/label-editor/classes?jobId=${encodeURIComponent(currentJobId)}`;
+    } else if (currentDatasetId) {
+      clsUrl = `${API_BASE}/api/label-editor/classes?datasetId=${encodeURIComponent(currentDatasetId)}`;
     } else if (fallbackInstanceName) {
       clsUrl = `${API_BASE}/api/label-editor/classes?instanceName=${encodeURIComponent(fallbackInstanceName)}`;
     } else if (basePath) {
@@ -136,9 +138,6 @@ async function resolveJob(jobId) {
   currentDatasetId = cfg.datasetId ? String(cfg.datasetId) : currentDatasetId;
   currentJobId = String(cfg.jobId || jobId);
   currentView = cfg.view || currentView;
-  basePath = cfg.basePath || '';
-  folder = cfg.folder || 'images';
-  currentClassFile = cfg.classFile || '';
   obbMode = cfg.obbMode || 'rectangle';
   allImageList = cfg.images || [];
   imageMetaByPath = cfg.imageMeta || {};
@@ -248,21 +247,20 @@ async function loadData() {
   for (let i = 0; i < allImageList.length; i += BATCH) {
     const batch = allImageList.slice(i, i + BATCH);
     try {
+      const imageNames = currentJobId ? batch.map(p => p.split('/').pop()) : null;
       const res = await fetch(`${API_BASE}/api/label-editor/load-labels-batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          basePath,
-          jobId: currentJobId ? Number(currentJobId) : undefined,
-          view: currentView || undefined,
-          imagePaths: batch
-        })
+        body: JSON.stringify(currentJobId
+          ? { jobId: Number(currentJobId), imageNames }
+          : { basePath, imagePaths: batch, view: currentView || undefined }
+        )
       });
       if (res.ok) {
         const data = await res.json();
-        for (const [imgPath, content] of Object.entries(data.labels || {})) {
-          labelRaw[imgPath] = content || '';
-          labelCache[imgPath] = parseLabel(content);
+        for (const [key, content] of Object.entries(data.labels || {})) {
+          labelRaw[key] = content || '';
+          labelCache[key] = parseLabel(content);
         }
       }
     } catch {}
@@ -1242,13 +1240,10 @@ async function loadThumb(imgPath, idx, renderToken) {
     const res = await fetch(`${API_BASE}/api/label-editor/load-thumbnails-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        basePath,
-        imagePaths: [imgPath],
-        maxSize: 176,
-        jobId: currentJobId ? Number(currentJobId) : undefined,
-        view: currentView || undefined
-      })
+      body: JSON.stringify(currentJobId
+        ? { jobId: Number(currentJobId), imageNames: [imgPath.split('/').pop()], maxSize: 176, view: currentView || undefined }
+        : { basePath, imagePaths: [imgPath], maxSize: 176, view: currentView || undefined }
+      )
     });
 
     if (renderToken !== gridRenderToken) return;
@@ -1596,12 +1591,10 @@ async function deleteSelected() {
     const res = await fetch(`${API_BASE}/api/label-editor/delete-images`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        basePath,
-        jobId: currentJobId ? Number(currentJobId) : undefined,
-        view: currentView || undefined,
-        images: [...selectedImages]
-      })
+      body: JSON.stringify(currentJobId
+        ? { jobId: Number(currentJobId), imageNames: [...selectedImages].map(p => p.split('/').pop()), view: currentView || undefined }
+        : { basePath, images: [...selectedImages], view: currentView || undefined }
+      )
     });
     if (!res.ok) throw new Error((await res.json()).error || res.statusText);
 
@@ -1629,13 +1622,16 @@ function openImage(imgPath) {
   const url = new URL(`${window.location.origin}/label-editor`);
   if (currentJobId) {
     url.searchParams.set('jobId', currentJobId);
+    if (currentView) url.searchParams.set('view', currentView);
+    // In job mode, use 'start' (bare filename) so the label editor finds it in jobScopedImages
+    url.searchParams.set('start', imgPath.split('/').pop());
   } else if (currentDatasetId) {
     url.searchParams.set('datasetId', currentDatasetId);
+    url.searchParams.set('img', imgPath);
   } else {
     url.searchParams.set('base', basePath);
+    url.searchParams.set('img', imgPath);
   }
-  url.searchParams.set('img', imgPath);
-  if (currentClassFile) url.searchParams.set('classFile', currentClassFile);
   if (instanceName) url.searchParams.set('instance', instanceName);
   if (obbMode && obbMode !== 'rectangle') url.searchParams.set('obbMode', obbMode);
   window.open(url.toString(), '_blank', 'noopener,noreferrer');
@@ -1645,7 +1641,7 @@ function openEditor() {
   if (currentJobId) {
     const url = new URL(`${window.location.origin}/label-editor`);
     url.searchParams.set('jobId', currentJobId);
-    if (currentClassFile) url.searchParams.set('classFile', currentClassFile);
+    if (currentView) url.searchParams.set('view', currentView);
     window.open(url.toString(), '_blank', 'noopener,noreferrer');
     return;
   }
@@ -1669,19 +1665,18 @@ async function refreshCardLabel(imgPath, idx) {
   if (btn) btn.classList.add('spinning');
 
   try {
+    const imageName = imgPath.split('/').pop();
     const res = await fetch(`${API_BASE}/api/label-editor/load-labels-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        basePath,
-        jobId: currentJobId ? Number(currentJobId) : undefined,
-        view: currentView || undefined,
-        imagePaths: [imgPath]
-      })
+      body: JSON.stringify(currentJobId
+        ? { jobId: Number(currentJobId), imageNames: [imageName] }
+        : { basePath, imagePaths: [imgPath], view: currentView || undefined }
+      )
     });
     if (!res.ok) return;
     const data = await res.json();
-    const content = data.labels?.[imgPath] ?? '';
+    const content = data.labels?.[currentJobId ? imageName : imgPath] ?? '';
     labelRaw[imgPath] = content;
     labelCache[imgPath] = parseLabel(content);
 
@@ -1801,13 +1796,10 @@ async function loadLightboxThumb(imgPath, wrap, captureIdx) {
     const res = await fetch(`${API_BASE}/api/label-editor/load-thumbnails-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        basePath,
-        imagePaths: [imgPath],
-        maxSize: 1600,
-        jobId: currentJobId ? Number(currentJobId) : undefined,
-        view: currentView || undefined
-      })
+      body: JSON.stringify(currentJobId
+        ? { jobId: Number(currentJobId), imageNames: [imgPath.split('/').pop()], maxSize: 1600, view: currentView || undefined }
+        : { basePath, imagePaths: [imgPath], maxSize: 1600, view: currentView || undefined }
+      )
     });
 
     if (captureIdx !== lightboxIndex) return;

@@ -111,6 +111,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         let currentInstanceName = '';
         let currentDatasetId = '';
         let currentJobId = '';
+        let currentView = '';
         let currentClassFile = '';
         let jobScopedImages = [];
         let jobScopedImageMeta = {};
@@ -148,6 +149,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         const instanceNameParam = urlParams.get('instance') || '';
         const datasetIdParam = urlParams.get('datasetId') || '';
         const jobIdParam = urlParams.get('jobId') || '';
+        const viewParam = urlParams.get('view') || '';
         const classFileParam = urlParams.get('classFile') || '';
         let startImageParam = urlParams.get('start');
         let lastKnownImageParam = startImageParam || '';
@@ -170,13 +172,22 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
 
         // Load images from folder if folder parameter is provided
         async function loadImagesFromFolder() {
-            if (!folderParam || !basePath) {
+            if (!currentJobId && (!folderParam || !basePath)) {
                 return false;
             }
 
             try {
                 showStatusMessage('editor.status.loadingImages');
-                const response = await fetch(`/api/label-editor/list-folder?basePath=${encodeURIComponent(basePath)}&folder=${encodeURIComponent(folderParam)}`);
+                let response;
+                if (currentJobId) {
+                    response = await fetch('/api/label-editor/list-folder', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ jobId: Number(currentJobId) })
+                    });
+                } else {
+                    response = await fetch(`/api/label-editor/list-folder?basePath=${encodeURIComponent(basePath)}&folder=${encodeURIComponent(folderParam)}`);
+                }
 
                 if (!response.ok) {
                     const error = await response.json();
@@ -184,7 +195,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 }
 
                 const data = await response.json();
-                allImageList = data.images;
+                allImageList = data.images || [];
                 imageMetaByPath = data.imageMeta || {};
                 imageList = [...allImageList]; // Initialize filtered list
                 filterBaseList = [...allImageList]; // Initialize filter base list
@@ -250,12 +261,12 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
 
             if (jobIdParam && !basePath) {
                 try {
-                    const cfgResp = await fetch(`/api/label-editor/instance-config?jobId=${encodeURIComponent(jobIdParam)}`);
+                    const cfgUrl = `/api/label-editor/instance-config?jobId=${encodeURIComponent(jobIdParam)}${viewParam ? `&view=${encodeURIComponent(viewParam)}` : ''}`;
+                    const cfgResp = await fetch(cfgUrl);
                     if (cfgResp.ok) {
                         const cfg = await cfgResp.json();
                         currentDatasetId = cfg.datasetId ? String(cfg.datasetId) : '';
-                        basePath = cfg.basePath || '';
-                        folderParam = folderParam || cfg.folder || '';
+                        currentView = cfg.view || viewParam || '';
                         currentClassFile = cfg.classFile || '';
                         jobScopedImages = Array.isArray(cfg.images) ? cfg.images : [];
                         jobScopedImageMeta = cfg.imageMeta || {};
@@ -599,7 +610,28 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
 
         async function loadClassNames() {
             showStatusMessage('editor.status.loadingClasses');
-            // Prefer instance name for exact lookup; fall back to path-based matching
+
+            // Prefer jobId — server resolves class file from dataset
+            if (currentJobId) {
+                try {
+                    const response = await fetch(`/api/label-editor/classes?jobId=${encodeURIComponent(currentJobId)}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (Array.isArray(data.classes) && data.classes.length > 0) {
+                            CLASSES = data.classes;
+                            showStatusMessage('editor.status.ready');
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Failed to load classes by jobId:', error);
+                }
+                CLASSES = [...DEFAULT_CLASSES];
+                showStatusMessage('editor.status.ready');
+                return;
+            }
+
+            // Legacy: instance name lookup
             if (instanceNameParam) {
                 try {
                     const response = await fetch(`/api/label-editor/classes?instanceName=${encodeURIComponent(instanceNameParam)}`);
@@ -616,22 +648,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 }
             }
 
-            if (currentClassFile) {
-                try {
-                    const response = await fetch(`/api/label-editor/classes?classFile=${encodeURIComponent(currentClassFile)}`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (Array.isArray(data.classes) && data.classes.length > 0) {
-                            CLASSES = data.classes;
-                            showStatusMessage('editor.status.ready');
-                            return;
-                        }
-                    }
-                } catch (error) {
-                    console.warn('Failed to load classes by classFile:', error);
-                }
-            }
-
+            // Legacy: basePath lookup
             const classBasePath = resolveClassBasePath();
             if (!classBasePath) {
                 CLASSES = [...DEFAULT_CLASSES];
@@ -738,14 +755,14 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         // Load metadata from backend for all images (or batch)
         async function loadMetadataFromBackend(imagePaths) {
             try {
+                const body = currentJobId
+                    ? { jobId: Number(currentJobId), imageNames: imagePaths.map((p) => p.split('/').pop()) }
+                    : { basePath, images: imagePaths };
+
                 const response = await fetch('/api/label-editor/get-metadata', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        basePath: basePath,
-                        jobId: currentJobId ? Number(currentJobId) : undefined,
-                        images: imagePaths
-                    })
+                    body: JSON.stringify(body)
                 });
 
                 if (!response.ok) {
@@ -754,10 +771,19 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
 
                 const data = await response.json();
 
-                // Merge into cache
-                Object.assign(labelCache, data.metadata);
+                // In job mode, response is keyed by filename — re-map to match imagePaths keys
+                const metadata = {};
+                for (const imgPath of imagePaths) {
+                    const key = currentJobId ? imgPath.split('/').pop() : imgPath;
+                    if (data.metadata[key] !== undefined) {
+                        metadata[imgPath] = data.metadata[key];
+                    }
+                }
 
-                return data.metadata;
+                // Merge into cache
+                Object.assign(labelCache, metadata);
+
+                return metadata;
             } catch (err) {
                 console.error('Error loading metadata:', err);
                 return {};
@@ -866,15 +892,13 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                     console.log(`Filtered ${allImageList.length} images down to ${filteredImages.length} (client-side)`);
                 } else {
                     // Fallback: server-side filtering (before preload completes)
+                    const filterBody = currentJobId
+                        ? { jobId: Number(currentJobId), imageNames: allImageList.map((p) => p.split('/').pop()), filters: filterParams }
+                        : { basePath, images: allImageList, filters: filterParams };
                     const response = await fetch('/api/label-editor/filter-images', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            basePath: basePath,
-                            jobId: currentJobId ? Number(currentJobId) : undefined,
-                            images: allImageList,
-                            filters: filterParams
-                        })
+                        body: JSON.stringify(filterBody)
                     });
 
                     if (!response.ok) {
@@ -1119,18 +1143,21 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             if (!currentJobId && (!folderParam || !basePath)) {
                 return;
             }
-            try {
-                const response = await fetch(currentJobId
-                    ? `/api/label-editor/last-image?jobId=${encodeURIComponent(currentJobId)}`
-                    : `/api/label-editor/last-image?basePath=${encodeURIComponent(basePath)}&folder=${encodeURIComponent(folderParam)}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.lastImagePath) {
-                        lastKnownImageParam = data.lastImagePath;
+            // If an explicit start image was provided via URL, don't override it with last-viewed
+            if (!startImageParam) {
+                try {
+                    const response = await fetch(currentJobId
+                        ? `/api/label-editor/last-image?jobId=${encodeURIComponent(currentJobId)}`
+                        : `/api/label-editor/last-image?basePath=${encodeURIComponent(basePath)}&folder=${encodeURIComponent(folderParam)}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.lastImagePath) {
+                            lastKnownImageParam = data.lastImagePath;
+                        }
                     }
+                } catch (err) {
+                    // Ignore fetch errors and fall back to start param.
                 }
-            } catch (err) {
-                // Ignore fetch errors and fall back to start param.
             }
             if (lastKnownImageParam) {
                 const normalizedStart = normalizeStartImagePathForList(lastKnownImageParam);
@@ -1706,16 +1733,18 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             previewDragInitialized = true;
         }
 
-        // Build image URL - use short format when instance name is available
+        // Build image URL
         function buildImageUrl(imagePath, cacheBuster = '') {
+            if (currentJobId) {
+                const filename = imagePath.split('/').pop();
+                return `/api/image?jobId=${encodeURIComponent(currentJobId)}&n=${encodeURIComponent(filename)}${cacheBuster}`;
+            }
             if (currentInstanceName) {
                 const filename = imagePath.split('/').pop();
                 return `/api/image?i=${encodeURIComponent(currentInstanceName)}&n=${encodeURIComponent(filename)}${cacheBuster}`;
             }
-            // Fallback to old format
             if (basePath) {
-                const jobParam = currentJobId ? `&jobId=${encodeURIComponent(currentJobId)}` : '';
-                return `/api/image?basePath=${encodeURIComponent(basePath)}&relativePath=${encodeURIComponent(imagePath)}${jobParam}${cacheBuster}`;
+                return `/api/image?basePath=${encodeURIComponent(basePath)}&relativePath=${encodeURIComponent(imagePath)}${cacheBuster}`;
             }
             return `/api/image?fullPath=${encodeURIComponent(imagePath)}${cacheBuster}`;
         }
@@ -1806,15 +1835,19 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         }
 
         async function fetchThumbnailBatchSingle(imagePaths) {
-            const payload = { imagePaths, maxSize: THUMBNAIL_MAX_SIZE };
-            if (basePath) {
-                payload.basePath = basePath;
-            }
-            if (currentJobId) {
-                payload.jobId = Number(currentJobId);
-            }
-            if (currentInstanceName) {
-                payload.instanceName = currentInstanceName;
+            let payload;
+            const isJobMode = !!currentJobId;
+            if (isJobMode) {
+                payload = {
+                    jobId: Number(currentJobId),
+                    imageNames: imagePaths.map((p) => p.split('/').pop()),
+                    maxSize: THUMBNAIL_MAX_SIZE,
+                    view: currentView || undefined
+                };
+            } else {
+                payload = { imagePaths, maxSize: THUMBNAIL_MAX_SIZE };
+                if (basePath) payload.basePath = basePath;
+                if (currentInstanceName) payload.instanceName = currentInstanceName;
             }
             const response = await fetch('/api/label-editor/load-thumbnails-batch', {
                 method: 'POST',
@@ -1830,7 +1863,16 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 throw new Error('Missing boundary in response');
             }
             const buffer = await response.arrayBuffer();
-            return parseMultipartThumbnails(buffer, boundaryMatch[1]);
+            const thumbnails = parseMultipartThumbnails(buffer, boundaryMatch[1]);
+            // In job mode, response keys are 'images/file.jpg' — remap to bare filenames
+            if (isJobMode) {
+                const remapped = {};
+                for (const [key, val] of Object.entries(thumbnails)) {
+                    remapped[key.split('/').pop() || key] = val;
+                }
+                return remapped;
+            }
+            return thumbnails;
         }
 
         async function fetchThumbnailBatch(imagePaths) {
@@ -2223,10 +2265,13 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
 
         // Build label URL for a given image path
         function buildLabelUrl(imagePath) {
+            const imageName = imagePath.split('/').pop();
+            if (currentJobId) {
+                return `/api/label-editor/load-label?jobId=${encodeURIComponent(currentJobId)}&imageName=${encodeURIComponent(imageName)}`;
+            }
             const labelPath = imagePath.replace('images/', 'labels/').replace(/\.(jpg|jpeg|png)$/i, '.txt');
             if (basePath) {
-                const jobParam = currentJobId ? `&jobId=${encodeURIComponent(currentJobId)}` : '';
-                return `/api/label-editor/load-label?basePath=${encodeURIComponent(basePath)}&relativeLabel=${encodeURIComponent(labelPath)}${jobParam}`;
+                return `/api/label-editor/load-label?basePath=${encodeURIComponent(basePath)}&relativeLabel=${encodeURIComponent(labelPath)}`;
             }
             return `/api/label-editor/load-label?label=${encodeURIComponent(labelPath)}`;
         }
@@ -2361,19 +2406,24 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
 
                 try {
                     // Single API call for the entire batch
+                    const imageNames = currentJobId
+                        ? toLoad.map(p => p.split('/').pop())
+                        : null;
                     const response = await fetch('/api/label-editor/load-labels-batch', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            basePath,
-                            jobId: currentJobId ? Number(currentJobId) : undefined,
-                            imagePaths: toLoad
-                        })
+                        body: JSON.stringify(currentJobId
+                            ? { jobId: Number(currentJobId), imageNames }
+                            : { basePath, imagePaths: toLoad }
+                        )
                     });
                     const data = await response.json();
 
-                    // Store all labels from response
-                    for (const [imgPath, labelContent] of Object.entries(data.labels || {})) {
+                    // Store all labels from response; re-map filename keys back to original paths
+                    for (const [key, labelContent] of Object.entries(data.labels || {})) {
+                        const imgPath = currentJobId
+                            ? (toLoad.find(p => p.split('/').pop() === key) || `images/${key}`)
+                            : key;
                         preloadedLabels.set(imgPath, {
                             loading: false,
                             labelContent: labelContent || ''
@@ -2794,6 +2844,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         }
 
         function draw() {
+            if (!image) return;
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -4838,15 +4889,13 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 }).join('\n');
 
                 // Build save request based on format
-                const requestBody = {
-                    content: yoloContent
-                };
+                const imageName = imageList[currentImageIndex]?.split('/').pop() || null;
+                const requestBody = { content: yoloContent };
 
-                if (currentJobId) {
+                if (currentJobId && imageName) {
                     requestBody.jobId = Number(currentJobId);
-                }
-
-                if (basePath && currentLabelPath) {
+                    requestBody.imageName = imageName;
+                } else if (basePath && currentLabelPath) {
                     requestBody.basePath = basePath;
                     requestBody.relativeLabelPath = currentLabelPath;
                 } else {
@@ -4942,7 +4991,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         const LAST_IMAGE_SAVE_DELAY = 1500; // Only save if user stays on image for 1.5s
 
         function saveLastImageSelection(imagePath) {
-            if (!basePath || !imagePath) {
+            if (!imagePath || (!basePath && !currentJobId)) {
                 return;
             }
 

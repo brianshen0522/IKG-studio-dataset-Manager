@@ -21,12 +21,13 @@ function inferDatasetPath(basePath, imagePath, view) {
 
 export const POST = withApiLogging(async (req) => {
   try {
-    const { basePath, images, jobId, view } = await req.json();
-    let allowedImagePathSet = null;
+    const { basePath, images, imageNames, jobId, view } = await req.json();
+    let resolvedBasePath = basePath;
+    let resolvedImages = images;
     let dataset = null;
 
-    // If jobId supplied, verify access
-    if (jobId) {
+    // Job-based mode: { jobId, imageNames } — filenames only, no basePath needed
+    if (jobId && imageNames) {
       const actor = await getUserFromRequest(req);
       if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const job = await getJobById(Number(jobId));
@@ -36,40 +37,39 @@ export const POST = withApiLogging(async (req) => {
       dataset = await getDatasetById(job.datasetId);
       if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
 
-      if (view === 'duplicates') {
-        allowedImagePathSet = scanFolderImagePaths(dataset.datasetPath, 'duplicate/images').imagePathSet;
-      } else {
-        const folderPath = images?.find(Boolean)?.replace(/\\/g, '/').split('/').slice(0, -1).join('/') || 'images';
-        allowedImagePathSet = buildJobEditorPaths(dataset.datasetPath, job, folderPath).imagePathSet;
+      const folder = view === 'duplicates' ? 'duplicate/images' : 'images';
+      const { imagePathSet } = view === 'duplicates'
+        ? scanFolderImagePaths(dataset.datasetPath, folder)
+        : buildJobEditorPaths(dataset.datasetPath, job, folder);
+
+      resolvedBasePath = dataset.datasetPath;
+      resolvedImages = imageNames
+        .filter((n) => imagePathSet.has(`${folder}/${n}`))
+        .map((n) => `${folder}/${n}`);
+    } else {
+      // Legacy path-based mode
+      if (!resolvedBasePath || !Array.isArray(resolvedImages) || resolvedImages.length === 0) {
+        return NextResponse.json({ error: 'Missing basePath or images array' }, { status: 400 });
       }
-    }
-
-    if (!basePath || !Array.isArray(images) || images.length === 0) {
-      return NextResponse.json({ error: 'Missing basePath or images array' }, { status: 400 });
-    }
-
-    if (!dataset) {
-      const inferredDatasetPath = inferDatasetPath(basePath, images[0], view);
-      if (inferredDatasetPath) {
-        dataset = await getDatasetByPath(inferredDatasetPath);
+      if (!dataset) {
+        const inferredDatasetPath = inferDatasetPath(resolvedBasePath, resolvedImages[0], view);
+        if (inferredDatasetPath) {
+          dataset = await getDatasetByPath(inferredDatasetPath);
+        }
       }
     }
 
     let deleted = 0;
     const errors = [];
 
-    for (const imagePath of images) {
-      if (allowedImagePathSet && !isJobImagePathAllowed(imagePath, allowedImagePathSet)) {
-        errors.push({ path: imagePath, error: 'Image is outside this job scope' });
-        continue;
-      }
+    for (const imagePath of resolvedImages) {
       try {
-        const fullImagePath = path.join(basePath, imagePath);
+        const fullImagePath = path.join(resolvedBasePath, imagePath);
         if (fs.existsSync(fullImagePath)) fs.unlinkSync(fullImagePath);
 
         const ext = path.extname(imagePath);
         const labelPath = imagePath.replace('images/', 'labels/').replace(ext, '.txt');
-        const fullLabelPath = path.join(basePath, labelPath);
+        const fullLabelPath = path.join(resolvedBasePath, labelPath);
         if (fs.existsSync(fullLabelPath)) fs.unlinkSync(fullLabelPath);
 
         deleted++;

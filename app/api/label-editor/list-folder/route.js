@@ -1,10 +1,42 @@
 import { NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
+import { getUserFromRequest } from '@/lib/auth';
+import { getDatasetById, getJobById } from '@/lib/db-datasets';
+import { buildJobEditorPaths, scanFolderImagePaths } from '@/lib/job-scope';
+import { canAccessJob } from '@/lib/permissions';
 import fs from 'fs';
 import path from 'path';
-import { withApiLogging } from '@/lib/api-logger';
 
 export const dynamic = 'force-dynamic';
 
+// POST: job-based — body: { jobId }
+export const POST = withApiLogging(async (req) => {
+  try {
+    const { jobId } = await req.json();
+
+    if (!jobId) {
+      return NextResponse.json({ error: 'Missing jobId' }, { status: 400 });
+    }
+
+    const actor = await getUserFromRequest(req);
+    if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const job = await getJobById(Number(jobId));
+    if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    if (!canAccessJob(actor, job)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const dataset = await getDatasetById(job.datasetId);
+    if (!dataset) return NextResponse.json({ error: 'Dataset not found' }, { status: 404 });
+
+    const { filenames } = buildJobEditorPaths(dataset.datasetPath, job, 'images');
+
+    return NextResponse.json({ images: filenames, count: filenames.length });
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+});
+
+// GET: legacy path-based — ?basePath=...&folder=...
 export const GET = withApiLogging(async (req) => {
   try {
     const { searchParams } = new URL(req.url);
@@ -16,43 +48,13 @@ export const GET = withApiLogging(async (req) => {
     }
 
     const fullPath = path.join(basePath, folder);
-
     if (!fs.existsSync(fullPath)) {
       return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
     }
 
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif'];
-    const images = [];
-    const imageMeta = {};
+    const { imagePaths, imageMeta } = scanFolderImagePaths(basePath, folder);
 
-    function scanDirectory(dir, baseDir) {
-      const items = fs.readdirSync(dir);
-
-      for (const item of items) {
-        const fullItemPath = path.join(dir, item);
-        const stat = fs.statSync(fullItemPath);
-
-        if (stat.isDirectory()) {
-          scanDirectory(fullItemPath, baseDir);
-        } else if (stat.isFile()) {
-          const ext = path.extname(item).toLowerCase();
-          if (imageExtensions.includes(ext)) {
-            const relativePath = path.relative(baseDir, fullItemPath);
-            const imagePath = path.join(folder, relativePath).replace(/\\/g, '/');
-            images.push(imagePath);
-            imageMeta[imagePath] = {
-              ctimeMs: stat.birthtimeMs || stat.ctimeMs,
-              mtimeMs: stat.mtimeMs
-            };
-          }
-        }
-      }
-    }
-
-    scanDirectory(fullPath, fullPath);
-    images.sort();
-
-    return NextResponse.json({ images, count: images.length, imageMeta });
+    return NextResponse.json({ images: imagePaths, count: imagePaths.length, imageMeta });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
