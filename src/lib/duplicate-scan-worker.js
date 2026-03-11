@@ -92,7 +92,7 @@ function labelsAreSimilar(labels1, labels2, threshold, limit) {
 // Group processing (move / delete)
 // ---------------------------------------------------------------------------
 
-function processGroup(datasetPath, groupIndices, allPaths, action, debug, log) {
+function processGroup(datasetPath, groupIndices, allPaths, action, debug) {
   const toProcess = groupIndices.slice(1); // duplicates to move/delete
   const processed = [];
 
@@ -187,7 +187,7 @@ async function handleDuplicates({ datasetPath, threshold, mode, labelsLimit, deb
 
     if (group.length > 1) {
       duplicateGroups++;
-      const msgs = processGroup(datasetPath, group, images, mode, debug, log);
+      const msgs = processGroup(datasetPath, group, images, mode, debug);
       for (const msg of msgs) {
         await log('info', msg);
         totalProcessed++;
@@ -239,22 +239,21 @@ export async function runDuplicateScan(job) {
     }
 
     if (action === 'skip') {
-      await log('info', 'Action is "skip" — no processing done.');
-      return;
+      await log('info', 'Action is "skip" — no duplicate processing done.');
+    } else {
+      await log('info', `Config — mode: ${action}, IoU: ${iou}, labels limit: ${labelsLimit}, debug: ${isDebug}`);
+
+      const { duplicateGroups, processed } = await handleDuplicates({
+        datasetPath,
+        threshold: iou,
+        mode: action,
+        labelsLimit,
+        debug: isDebug,
+        log,
+      });
+
+      await log('info', `Scan done — ${duplicateGroups} duplicate group(s), ${processed} file(s) ${action === 'move' ? 'moved' : 'deleted'}.`);
     }
-
-    await log('info', `Config — mode: ${action}, IoU: ${iou}, labels limit: ${labelsLimit}, debug: ${isDebug}`);
-
-    const { duplicateGroups, processed } = await handleDuplicates({
-      datasetPath,
-      threshold: iou,
-      mode: action,
-      labelsLimit,
-      debug: isDebug,
-      log,
-    });
-
-    await log('info', `Scan done — ${duplicateGroups} duplicate group(s), ${processed} file(s) ${action === 'move' ? 'moved' : 'deleted'}.`);
 
     await log('info', 'Slicing dataset into jobs…');
     const { totalImages, jobCount } = await createDatasetJobs(datasetId);
