@@ -5157,11 +5157,10 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 const res = await fetch('/api/label-editor/delete-images', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        basePath,
-                        jobId: currentJobId ? Number(currentJobId) : undefined,
-                        images: Array.from(selectedImages)
-                    })
+                    body: JSON.stringify(currentJobId
+                        ? { jobId: Number(currentJobId), imageNames: Array.from(selectedImages), view: currentView || undefined }
+                        : { basePath, images: Array.from(selectedImages), view: currentView || undefined }
+                    )
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Delete failed');
