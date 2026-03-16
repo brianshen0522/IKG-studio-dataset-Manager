@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import AppHeader from './_components/AppHeader';
 import { useCurrentUser } from './_components/useCurrentUser';
 import FileBrowser from './_components/FileBrowser';
-import DatasetBrowser from './_components/DatasetBrowser';
 import { subscribeSSE } from '@/lib/shared-sse';
 
 const STATUS_COLOR = {
@@ -83,7 +82,6 @@ function AddDatasetModal({ onClose, onCreated }) {
   const [obbMode, setObbMode] = useState('rectangle');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [showPathBrowser, setShowPathBrowser] = useState(false);
   const [showClassFileBrowser, setShowClassFileBrowser] = useState(false);
 
   // Dataset type selection
@@ -323,23 +321,6 @@ function AddDatasetModal({ onClose, onCreated }) {
             />
           </div>
 
-          {/* Manual path input — only shown when no type selected */}
-          {!isTypeMode && (
-            <div style={styles.field}>
-              <label style={styles.label}>Dataset Path *</label>
-              <div style={styles.inputRow}>
-                <input
-                  style={{ ...styles.input, flex: 1 }}
-                  value={datasetPath}
-                  onChange={(e) => setDatasetPath(e.target.value)}
-                  placeholder="/data/my-dataset"
-                  required
-                />
-                <button type="button" style={styles.browseBtn} onClick={() => setShowPathBrowser(true)}>Browse</button>
-              </div>
-              <small style={styles.hint}>Absolute path to the directory containing an images/ folder</small>
-            </div>
-          )}
 
           <div style={styles.field}>
             <label style={styles.label}>Class Names File</label>
@@ -477,18 +458,6 @@ function AddDatasetModal({ onClose, onCreated }) {
       </div>
     </div>
 
-      {showPathBrowser && (
-        <DatasetBrowser
-          value={datasetPath}
-          onChange={(p) => {
-            setDatasetPath(p);
-            const folderName = p.split('/').filter(Boolean).pop() || '';
-            setDisplayName(folderName);
-          }}
-          onClassFileFound={(cf) => { if (cf) setClassFile(cf); }}
-          onClose={() => setShowPathBrowser(false)}
-        />
-      )}
       {showClassFileBrowser && (
         <FileBrowser
           mode="file"
