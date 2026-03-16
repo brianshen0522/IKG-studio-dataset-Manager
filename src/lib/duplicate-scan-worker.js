@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { appendTaskLog } from './db-tasks.js';
-import { createDatasetJobs } from './db-datasets.js';
+import { createDatasetJobs, getJobsByDataset, assignJob } from './db-datasets.js';
 import { getMatchingDuplicateRule } from './manager.js';
 
 // ---------------------------------------------------------------------------
@@ -217,6 +217,7 @@ export async function runDuplicateScan(job) {
     duplicateLabels,
     threshold,
     debug,
+    autoAssignTo,
   } = jobData;
 
   const jobId = Array.isArray(job) ? job[0]?.id : job?.id;
@@ -258,6 +259,19 @@ export async function runDuplicateScan(job) {
     await log('info', 'Slicing dataset into jobs…');
     const { totalImages, jobCount } = await createDatasetJobs(datasetId);
     await log('info', `Jobs created — ${totalImages} images → ${jobCount} job(s).`);
+
+    if (autoAssignTo) {
+      try {
+        const jobs = await getJobsByDataset(datasetId, { role: 'admin' });
+        let assigned = 0;
+        for (const j of jobs) {
+          try { await assignJob(j.id, autoAssignTo, autoAssignTo); assigned++; } catch { /* skip */ }
+        }
+        await log('info', `Auto-assigned ${assigned} job(s) to user #${autoAssignTo}.`);
+      } catch (err) {
+        await log('warn', `Auto-assign failed: ${err.message}`);
+      }
+    }
   } catch (err) {
     await log('error', `Scan failed: ${err.message}`);
     throw err;

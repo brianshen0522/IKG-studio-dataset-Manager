@@ -209,26 +209,12 @@ function AddDatasetModal({ onClose, onCreated }) {
             threshold: Number(dupConfigMode === 'individual' ? (itemDupSettings[name]?.threshold ?? dupThreshold) : dupThreshold),
             debug: dupConfigMode === 'individual' ? (itemDupSettings[name]?.debug ?? dupDebug) : dupDebug,
             typeId: Number(selectedTypeId),
+            autoAssignTo: assignToUserId ? Number(assignToUserId) : null,
           }),
         });
         const data = await res.json();
         if (res.ok) {
           succeeded.push(data.dataset);
-          // Auto-assign all jobs if a user was selected
-          if (assignToUserId && data.dataset?.id) {
-            try {
-              const jobsRes = await fetch(`/api/datasets/${data.dataset.id}/jobs`);
-              const jobsData = await jobsRes.json();
-              const jobIds = (jobsData.jobs || []).map((j) => j.id);
-              if (jobIds.length > 0) {
-                await fetch(`/api/datasets/${data.dataset.id}/jobs/bulk-assign`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ jobIds, userId: Number(assignToUserId) }),
-                });
-              }
-            } catch { /* non-fatal */ }
-          }
         } else {
           failed.push({ name, error: data.error || 'Failed' });
         }

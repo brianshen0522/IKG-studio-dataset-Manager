@@ -30,7 +30,7 @@ export const POST = withApiLogging(async function handler(req) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { datasetPath, displayName, threshold, debug, pentagonFormat, obbMode, classFile, duplicateMode, duplicateLabels, typeId } = body || {};
+  const { datasetPath, displayName, threshold, debug, pentagonFormat, obbMode, classFile, duplicateMode, duplicateLabels, typeId, autoAssignTo } = body || {};
   if (!datasetPath) {
     return NextResponse.json({ error: 'datasetPath is required' }, { status: 400 });
   }
@@ -71,6 +71,7 @@ export const POST = withApiLogging(async function handler(req) {
           duplicateLabels: duplicateLabels ?? 0,
           threshold: threshold ?? 0.8,
           debug: debug ?? false,
+          autoAssignTo: autoAssignTo ? Number(autoAssignTo) : null,
         },
       });
       if (!jobId) console.error('[pg-boss] send returned null — queue may not exist');
