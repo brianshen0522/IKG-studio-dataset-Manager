@@ -61,3 +61,5 @@ services:
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-admin}
     restart: unless-stopped
 
+volumes:
+  pm2-logs:

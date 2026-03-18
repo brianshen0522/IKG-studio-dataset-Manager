@@ -1,6 +1,19 @@
 import { initI18n, t } from '@/lib/i18n';
 
+import { DEFAULT_SHORTCUTS } from '@/lib/shortcuts-defaults';
+
 const API_BASE = typeof window !== 'undefined' ? window.location.origin : '';
+
+// User's shortcut overrides — loaded once at init
+let _shortcuts = null;
+
+function shortcutMatch(e, actionId) {
+  const binding = (_shortcuts && _shortcuts[actionId] !== undefined)
+    ? _shortcuts[actionId]
+    : DEFAULT_SHORTCUTS[actionId];
+  if (!binding || typeof e.key !== 'string') return false;
+  return e.key.toLowerCase() === binding.toLowerCase();
+}
 
 // Class colors (cycling palette)
 const CLASS_COLORS = [
@@ -71,6 +84,15 @@ export async function initViewer() {
   initialized = true;
 
   await initI18n();
+
+  // Load user's custom shortcuts (best-effort; falls back to defaults on failure)
+  try {
+    const sRes = await fetch('/api/profile/shortcuts');
+    if (sRes.ok) {
+      const sData = await sRes.json();
+      _shortcuts = sData.shortcuts;
+    }
+  } catch { /* use defaults */ }
 
   const params = new URLSearchParams(window.location.search);
   instanceName = params.get('instance') || '';
@@ -1883,9 +1905,9 @@ function lightboxNav(dir) {
 }
 
 function onLightboxKey(e) {
-  if (e.key === 'Escape') closeLightbox();
-  else if (e.key === 'ArrowLeft') lightboxNav(-1);
-  else if (e.key === 'ArrowRight') lightboxNav(1);
+  if (shortcutMatch(e, 'viewer.lightboxClose')) closeLightbox();
+  else if (shortcutMatch(e, 'viewer.lightboxPrev')) lightboxNav(-1);
+  else if (shortcutMatch(e, 'viewer.lightboxNext')) lightboxNav(1);
 }
 
 function renderLightboxFrame() {

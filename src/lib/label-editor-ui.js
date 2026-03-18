@@ -1,4 +1,16 @@
 import { initI18n, onLanguageChange, t } from '@/lib/i18n';
+import { DEFAULT_SHORTCUTS } from '@/lib/shortcuts-defaults';
+
+// User's shortcut overrides — loaded once at init; null means not yet loaded
+let _shortcuts = null;
+
+function shortcutMatch(e, actionId) {
+    const binding = (_shortcuts && _shortcuts[actionId] !== undefined)
+        ? _shortcuts[actionId]
+        : DEFAULT_SHORTCUTS[actionId];
+    if (!binding || typeof e.key !== 'string') return false;
+    return e.key.toLowerCase() === binding.toLowerCase();
+}
 
 // Configuration
         const DEFAULT_CLASSES = ['one', 'two', 'three', 'four', 'five', 'six', 'invalid'];
@@ -246,6 +258,16 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             ctx = canvas.getContext('2d');
 
             await initI18n();
+
+            // Load user's custom shortcuts (best-effort; falls back to defaults on failure)
+            try {
+                const sRes = await fetch('/api/profile/shortcuts');
+                if (sRes.ok) {
+                    const sData = await sRes.json();
+                    _shortcuts = sData.shortcuts;
+                }
+            } catch { /* use defaults */ }
+
             onLanguageChange(() => {
                 updateObbModeDisplay();
                 updateInstructions();
@@ -3912,14 +3934,14 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 return;
             }
 
-            if (keyIs(e, 'KeyQ', 'q') || keyIs(e, 'KeyE', 'e')) {
+            if (shortcutMatch(e, 'editor.rotateCCW') || shortcutMatch(e, 'editor.rotateCW')) {
                 e.preventDefault();
-                const delta = keyIs(e, 'KeyQ', 'q') ? -Math.PI / 36 : Math.PI / 36;
+                const delta = shortcutMatch(e, 'editor.rotateCCW') ? -Math.PI / 36 : Math.PI / 36;
                 rotateSelectionBy(delta);
                 return;
             }
 
-            if (e.key === 'Escape') {
+            if (shortcutMatch(e, 'editor.cancelOrClear')) {
                 if (isCreatingObb || isCreatingTwoPoint || isSelectingBox) {
                     e.preventDefault();
                     clearAllCreation();
@@ -3961,15 +3983,15 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             }
 
             // Delete annotation(s)
-            if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (shortcutMatch(e, 'editor.deleteAnnotation') || e.key === 'Backspace') {
                 if (selectedAnnotations.length > 0) {
                     e.preventDefault();
                     deleteSelectedAnnotations();
                 }
             }
 
-            // Switch class with W/S keys
-            if (keyIs(e, 'KeyW', 'w')) {
+            // Switch class
+            if (shortcutMatch(e, 'editor.classUp')) {
                 e.preventDefault();
                 if (selectedAnnotations.length > 0 && annotations[selectedAnnotations[0]]) {
                     // Change class of all selected annotations
@@ -3986,7 +4008,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                     selectedClass = (selectedClass - 1 + CLASSES.length) % CLASSES.length;
                     updateClassSelector();
                 }
-            } else if (keyIs(e, 'KeyS', 's')) {
+            } else if (shortcutMatch(e, 'editor.classDown')) {
                 e.preventDefault();
                 if (selectedAnnotations.length > 0 && annotations[selectedAnnotations[0]]) {
                     // Change class of all selected annotations
@@ -4006,7 +4028,7 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
             }
 
             // Toggle selection of current image
-            if (keyIs(e, 'KeyX', 'x')) {
+            if (shortcutMatch(e, 'editor.toggleSelect')) {
                 e.preventDefault();
                 if (imageList.length > 0 && imageList[currentImageIndex]) {
                     toggleImageSelection(imageList[currentImageIndex]);
@@ -4014,11 +4036,11 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
                 return;
             }
 
-            // Navigate between images with arrow keys or A/D keys
-            if (e.key === 'ArrowLeft' || keyIs(e, 'KeyA', 'a') ||
-                e.key === 'ArrowRight' || keyIs(e, 'KeyD', 'd')) {
+            // Navigate between images with arrow keys or customizable keys
+            if (e.key === 'ArrowLeft' || shortcutMatch(e, 'editor.navigatePrev') ||
+                e.key === 'ArrowRight' || shortcutMatch(e, 'editor.navigateNext')) {
                 e.preventDefault();
-                const isBack = e.key === 'ArrowLeft' || keyIs(e, 'KeyA', 'a');
+                const isBack = e.key === 'ArrowLeft' || shortcutMatch(e, 'editor.navigatePrev');
 
                 // First press (not a repeat): navigate normally
                 if (navKeyHeldSince === null) {
@@ -4057,18 +4079,8 @@ import { initI18n, onLanguageChange, t } from '@/lib/i18n';
         }
 
         function handleKeyUp(e) {
-            const keyIs = (event, code, keyLower) => {
-                if (event.code === code) {
-                    return true;
-                }
-                if (typeof event.key !== 'string') {
-                    return false;
-                }
-                return event.key.toLowerCase() === keyLower;
-            };
-
-            if (e.key === 'ArrowLeft' || keyIs(e, 'KeyA', 'a') ||
-                e.key === 'ArrowRight' || keyIs(e, 'KeyD', 'd')) {
+            if (e.key === 'ArrowLeft' || shortcutMatch(e, 'editor.navigatePrev') ||
+                e.key === 'ArrowRight' || shortcutMatch(e, 'editor.navigateNext')) {
                 if (navKeyHeld) {
                     // Key was held — load the image at the final index
                     loadImage();

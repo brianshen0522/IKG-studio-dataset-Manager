@@ -108,6 +108,15 @@ export default function AppHeader({ title, backHref, backLabel }) {
             <span style={styles.userName}>{user.username}</span>
           </span>
         )}
+        {user && (
+          <button
+            style={{ ...styles.logoutBtn, ...(pathname?.startsWith('/profile/shortcuts') ? styles.logoutBtnActive : {}) }}
+            onClick={() => router.push('/profile/shortcuts')}
+            title="Keyboard Shortcuts"
+          >
+            ⌨ Shortcuts
+          </button>
+        )}
         <button style={styles.logoutBtn} onClick={handleLogout}>Sign Out</button>
       </div>
     </header>
@@ -244,5 +253,9 @@ const styles = {
     fontSize: '12px',
     padding: '5px 12px',
     transition: 'border-color 0.15s, color 0.15s',
+  },
+  logoutBtnActive: {
+    borderColor: '#2f7ff5',
+    color: '#60a5fa',
   },
 };

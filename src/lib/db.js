@@ -182,6 +182,15 @@ export async function initDatabase() {
       ALTER TABLE datasets ADD COLUMN IF NOT EXISTS move_attempt INTEGER NOT NULL DEFAULT 0;
     `);
 
+    // ---- User preferences (shortcuts, etc.) ----
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_preferences (
+        user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        shortcuts  JSONB NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
     // ---- Seed move_retry_limit ----
     await client.query(`
       INSERT INTO system_settings (key, value)
@@ -806,6 +815,32 @@ export async function isNameInUse(name, excludeName = null) {
       ? await client.query('SELECT COUNT(*) FROM instances WHERE name = $1 AND name != $2', [name, excludeName])
       : await client.query('SELECT COUNT(*) FROM instances WHERE name = $1', [name]);
     return parseInt(result.rows[0].count, 10) > 0;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getUserShortcuts(userId) {
+  await ensureInitialized();
+  const client = await getPool().connect();
+  try {
+    const result = await client.query('SELECT shortcuts FROM user_preferences WHERE user_id = $1', [userId]);
+    return result.rows[0]?.shortcuts || {};
+  } finally {
+    client.release();
+  }
+}
+
+export async function setUserShortcuts(userId, shortcuts) {
+  await ensureInitialized();
+  const client = await getPool().connect();
+  try {
+    await client.query(
+      `INSERT INTO user_preferences (user_id, shortcuts, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET shortcuts = $2, updated_at = NOW()`,
+      [userId, JSON.stringify(shortcuts)]
+    );
   } finally {
     client.release();
   }
