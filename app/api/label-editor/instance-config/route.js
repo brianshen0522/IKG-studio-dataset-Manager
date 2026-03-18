@@ -123,7 +123,7 @@ export const GET = withApiLogging(async (req) => {
         obbMode: dataset.obbMode || 'rectangle',
         classFile: dataset.classFile || null,
         labelEditorPreloadCount: CONFIG.labelEditorPreloadCount,
-        canDelete: !isDuplicateView,
+        canDelete: false,
       });
     }
 

@@ -6,8 +6,10 @@ Web application for managing YOLO datasets, multi-user job assignment, duplicate
 
 - **Dataset Types** — admin configures types (e.g. `dice`, `roulette`) with an *uncheck path* (work-in-progress) and a *check path* (completed). Datasets can be moved from uncheck → check via rsync with hash verification.
 - **Dataset & Job management** — datasets are split into fixed-size jobs and assigned to labelers. Progress is tracked per user per job.
+- **Multi-dataset creation** — add multiple datasets at once by selecting several subdirectories in one flow, with shared or per-dataset duplicate settings and optional auto-assign.
 - **Move to Check** — admin/data-manager initiates a background rsync move, verifies a metadata hash, removes the source, and removes the dataset from the system automatically.
 - **Label editor** — browser-based YOLO bounding-box / OBB editor with multi-image quick-edit tools.
+- **Viewer** — browse all images in a dataset or job; admin/data-manager view is read-only (no edit, no delete).
 - **Duplicate detection** — configurable IoU-based duplicate scan runs as a background task when a dataset is added.
 - **Role-based access** — three roles: `admin`, `data-manager`, `user`. All routes are JWT-protected.
 - **PostgreSQL** — stores users, datasets, jobs, settings, background task logs, and assignment history.
@@ -31,7 +33,6 @@ Edit `compose.yml` and add a volume mount for **every path** you intend to use a
 volumes:
   - /data/work:/data/work:rw          # your uncheck_path
   - /mnt/smb/check:/mnt/smb/check:rw  # your check_path (SMB share, etc.)
-  - pm2-logs:/root/.pm2/logs
   - ./deletion_logs:/app/deletion_logs:rw
 ```
 
@@ -110,9 +111,21 @@ Each type has:
 - **Uncheck Path** — root directory where work-in-progress datasets live
 - **Check Path** — destination root for completed datasets
 
-### Add a dataset
+Uncheck Path and Check Path must be different. Data-managers can view types (but not edit them).
 
-On the dashboard, click **+ Add Dataset**. If types are configured, pick a type and select a subdirectory from the available list (subdirs that have `images/` + `labels/` and are not already registered). The path is filled automatically.
+### Add datasets
+
+On the dashboard, click **+ Add Dataset**. The flow has two steps:
+
+**Step 1 — Select**
+- Pick a dataset type (auto-selected if only one is configured)
+- Check one or more subdirectories from the available list (subdirs with `images/` + `labels/` not already registered)
+
+**Step 2 — Review & Create**
+- Review the list of datasets to be created (name and image count)
+- Set OBB format and optionally edit the class file per dataset
+- Configure duplicate detection (shared settings applied to all, or switch to individual mode for per-dataset overrides)
+- Optionally select **Assign To** — all jobs created for every dataset in this batch will be auto-assigned to the chosen user
 
 A valid dataset directory must contain:
 
@@ -132,7 +145,9 @@ On the dataset detail page, admin/data-manager can click **Move to Check**. The 
 4. Delete the source directory
 5. Remove the dataset record from the database
 
-While a move is in progress the dataset is locked — edits and deletes are blocked. If the move fails, the error is shown on the detail page with a **Retry** option. The retry limit is configurable in Settings (`move_retry_limit`, default `3`).
+While a move is in progress the dataset is locked — edits, deletes, and job actions are blocked. The dashboard card shows the current move status (Pending / Moving / Verifying). If the move fails, the error is shown on the detail page with a **Retry** option. The retry limit is configurable in Settings (`move_retry_limit`, default `3`).
+
+Progress for both duplicate-scan and move-to-check jobs is visible in the **Background Tasks** page (admin/data-manager).
 
 ---
 
@@ -141,7 +156,7 @@ While a move is in progress the dataset is locked — edits and deletes are bloc
 | Role | Capabilities |
 | --- | --- |
 | `admin` | Everything: dataset types, system settings, users, move to check |
-| `data-manager` | Create/manage datasets, assign/reassign jobs, move to check |
+| `data-manager` | Create/manage datasets, assign/reassign jobs, move to check, view dataset types |
 | `user` | View assigned jobs, open label editor, mark jobs as done |
 
 ---
@@ -172,7 +187,6 @@ Rule fields: `pattern` (substring match on dataset path), `action`, `labels` (0 
 
 Persisted data:
 - `./postgres-data` — PostgreSQL data
-- `pm2-logs` volume — background task logs
 - `./deletion_logs` — deletion audit output
 
 `compose.yml` is git-ignored. Commit `compose.example.yml` and edit `compose.yml` locally on each machine.
@@ -196,6 +210,7 @@ The initial admin account is seeded on first startup if the `users` table is emp
 | Move to Check fails with "rsync not found" | Rebuild the Docker image (`docker compose build`) — `rsync` is installed in the Dockerfile |
 | Move fails hash mismatch | Usually a partial rsync; retry will re-rsync and re-verify |
 | Public address wrong in shared links | Set `PUBLIC_ADDRESS` in `.env` |
+| Docker build fails with "parent snapshot does not exist" | Corrupted BuildKit cache — run `docker builder prune -f && docker compose build --no-cache` |
 
 ---
 
