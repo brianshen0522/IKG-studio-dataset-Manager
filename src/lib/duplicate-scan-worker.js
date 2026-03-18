@@ -265,9 +265,17 @@ export async function runDuplicateScan(job) {
         const jobs = await getJobsByDataset(datasetId, { role: 'admin' });
         let assigned = 0;
         for (const j of jobs) {
-          try { await assignJob(j.id, autoAssignTo, autoAssignTo); assigned++; } catch { /* skip */ }
+          try {
+            await assignJob(j.id, autoAssignTo, autoAssignTo);
+            assigned++;
+          } catch (err) {
+            await log('warn', `Failed to auto-assign job #${j.id} (index ${j.jobIndex}): ${err.message}`);
+          }
         }
-        await log('info', `Auto-assigned ${assigned} job(s) to user #${autoAssignTo}.`);
+        await log('info', `Auto-assigned ${assigned}/${jobs.length} job(s) to user #${autoAssignTo}.`);
+        if (assigned < jobs.length) {
+          await log('warn', `${jobs.length - assigned} job(s) were not assigned — check warnings above. Admin can assign them manually from the dataset page.`);
+        }
       } catch (err) {
         await log('warn', `Auto-assign failed: ${err.message}`);
       }

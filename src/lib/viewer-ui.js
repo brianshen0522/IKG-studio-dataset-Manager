@@ -77,6 +77,8 @@ let lightboxIndex = -1;
 let navSearchQuery = '';
 let navMatchList = [];  // imgPath values matching nav search
 let navMatchPos = -1;   // current index in navMatchList
+let viewerSortMode = 'name-asc'; // synced with label editor previewSortMode when in job mode
+let _viewerSyncChannel = null;
 
 // ── Entry Point ───────────────────────────────────────────────────────────────
 export async function initViewer() {
@@ -171,6 +173,7 @@ async function resolveJob(jobId) {
   }
 
   await loadViewerClasses();
+  setupViewerSyncChannel();
   buildShell();
 }
 
@@ -209,6 +212,7 @@ export function refreshViewerLocale() {
   lightboxIndex = -1;
   buildShell();
   syncFilterControls();
+  syncSortControl();
   buildFilterPanel();
   if (hadGridContent && imageList.length > 0) {
     const grid = document.getElementById('vGrid');
@@ -298,13 +302,16 @@ async function loadData() {
     }
   }
 
-  if (restoreFilterState()) {
+  const filterRestored = await restoreFilterState();
+  if (filterRestored) {
     imageList = allImageList.filter(p => matchesFilter(p));
   } else {
     imageList = [...allImageList];
   }
+  sortViewerImages();
   buildFilterPanel();
   syncFilterControls();
+  syncSortControl();
   renderGrid();
   updateFilterStats();
   setLoadProgress(false);
@@ -946,6 +953,12 @@ function buildShell() {
         <span>⊞</span>
         <input type="range" id="vSizeSlider" min="80" max="400" step="8" value="176" oninput="vSetSize(this.value)">
       </div>
+      <select id="vSortMode" onchange="vSetSort(this.value)" title="Sort order" style="background:#333;color:#ccc;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;cursor:pointer">
+        <option value="name-asc">${t('viewer.sort.nameAsc') || 'Name A→Z'}</option>
+        <option value="name-desc">${t('viewer.sort.nameDesc') || 'Name Z→A'}</option>
+        <option value="created-desc">${t('viewer.sort.createdDesc') || 'Newest first'}</option>
+        <option value="created-asc">${t('viewer.sort.createdAsc') || 'Oldest first'}</option>
+      </select>
       <div class="v-nav-search">
         <input class="v-nav-input" id="vNavSearch" type="text" placeholder="${t('viewer.navSearch') || 'Jump to image…'}"
           oninput="vNavApply()" onkeydown="if(event.key==='Enter'){event.shiftKey?vNavPrev():vNavNext();event.preventDefault()}">
@@ -1003,6 +1016,7 @@ function buildShell() {
   window.vNavNext = navSearchNext;
   window.vNavPrev = navSearchPrev;
   window.vSetSize = setCardSize;
+  window.vSetSort = setSortMode;
 
   // Restore saved card size
   const savedSize = localStorage.getItem('viewer_card_size');
@@ -1067,6 +1081,7 @@ function applyFilters() {
 
   const prevList = imageList;
   imageList = allImageList.filter(p => matchesFilter(p));
+  sortViewerImages();
 
   const listChanged = imageList.length !== prevList.length || imageList.some((p, i) => p !== prevList[i]);
   if (listChanged) {
@@ -1118,6 +1133,7 @@ function clearFilters() {
   const logic = document.getElementById('vFLogic'); if (logic) logic.value = 'any';
   buildFilterPanel();
   imageList = [...allImageList];
+  sortViewerImages();
   renderGrid();
   updateFilterStats();
   saveFilterState();
@@ -1126,6 +1142,32 @@ function clearFilters() {
 // ── Filter persistence ────────────────────────────────────────────────────────
 function filterStorageKey() {
   return `viewer_filter_${instanceName || basePath}_${folder}`;
+}
+
+function viewerFilterToServerFormat(fs) {
+  return {
+    nameFilter: fs.name || '',
+    classMode: fs.classMode || 'any',
+    classLogic: fs.classLogic === 'any' ? 'or' : (fs.classLogic || 'or'),
+    selectedClasses: [...(fs.selectedClasses || [])],
+    minLabels: fs.minLabels || 0,
+    maxLabels: fs.maxLabels ?? null,
+  };
+}
+
+function serverFilterToViewerFormat(sf) {
+  const hasContent = sf.nameFilter || (sf.selectedClasses && sf.selectedClasses.length > 0)
+    || sf.minLabels > 0 || sf.maxLabels !== null || sf.classMode !== 'any';
+  if (!hasContent) return null;
+  return {
+    name: sf.nameFilter || '',
+    classMode: sf.classMode || 'any',
+    classLogic: sf.classLogic === 'or' ? 'any' : (sf.classLogic || 'any'),
+    selectedClasses: new Set(sf.selectedClasses || []),
+    minLabels: sf.minLabels || 0,
+    maxLabels: sf.maxLabels ?? null,
+    overlayFilteredOnly: true,
+  };
 }
 
 function saveFilterState() {
@@ -1137,9 +1179,49 @@ function saveFilterState() {
       minLabels, maxLabels, overlayFilteredOnly
     }));
   } catch {}
+
+  // In job mode, sync filter + sort to server and broadcast to other tabs
+  if (currentJobId) {
+    const hasFilter = filterState.name || filterState.selectedClasses.size > 0
+      || filterState.minLabels > 0 || filterState.maxLabels !== null || filterState.classMode !== 'any';
+    fetch('/api/label-editor/filter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jobId: Number(currentJobId),
+        filter: hasFilter ? viewerFilterToServerFormat(filterState) : null,
+        previewSortMode: viewerSortMode,
+      }),
+    }).catch(() => {});
+    broadcastViewerFilterSync();
+  }
 }
 
-function restoreFilterState() {
+async function restoreFilterState() {
+  // In job mode, load filter + sort from server (shared with label editor)
+  if (currentJobId) {
+    try {
+      const res = await fetch(`/api/label-editor/filter?jobId=${encodeURIComponent(currentJobId)}`);
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data) return false;
+      if (data.previewSortMode) {
+        viewerSortMode = data.previewSortMode;
+      }
+      if (data.filter) {
+        const vf = serverFilterToViewerFormat(data.filter);
+        if (vf) {
+          filterState = vf;
+          return true;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  // Non-job mode: use localStorage
   try {
     const raw = localStorage.getItem(filterStorageKey());
     if (!raw) return false;
@@ -1156,6 +1238,99 @@ function restoreFilterState() {
     return true;
   } catch {
     return false;
+  }
+}
+
+function metaFor(imgPath) {
+  return imageMetaByPath[imgPath] || imageMetaByPath[imgPath.split('/').pop()] || {};
+}
+
+function sortViewerImages() {
+  if (viewerSortMode === 'name-desc') {
+    imageList.sort((a, b) => {
+      const fa = a.split('/').pop(), fb = b.split('/').pop();
+      return fb.localeCompare(fa);
+    });
+  } else if (viewerSortMode === 'created-desc') {
+    imageList.sort((a, b) => {
+      return (metaFor(b).ctimeMs || 0) - (metaFor(a).ctimeMs || 0);
+    });
+  } else if (viewerSortMode === 'created-asc') {
+    imageList.sort((a, b) => {
+      return (metaFor(a).ctimeMs || 0) - (metaFor(b).ctimeMs || 0);
+    });
+  }
+  // 'name-asc' is default/natural order from server — no sort needed
+}
+
+function syncSortControl() {
+  const el = document.getElementById('vSortMode');
+  if (el) el.value = viewerSortMode;
+}
+
+function broadcastViewerFilterSync(sortOnly = false) {
+  if (!_viewerSyncChannel || !currentJobId) return;
+  const hasFilter = filterState.name || filterState.selectedClasses.size > 0
+    || filterState.minLabels > 0 || filterState.maxLabels !== null || filterState.classMode !== 'any';
+  try {
+    _viewerSyncChannel.postMessage({
+      type: 'filter-sync',
+      jobId: String(currentJobId),
+      filter: hasFilter ? viewerFilterToServerFormat(filterState) : null,
+      previewSortMode: viewerSortMode,
+      sortOnly,
+    });
+  } catch { /* ignore */ }
+}
+
+function setupViewerSyncChannel() {
+  if (!currentJobId) return;
+  try {
+    _viewerSyncChannel = new BroadcastChannel('ikg-filter-sync');
+    _viewerSyncChannel.onmessage = (e) => {
+      const msg = e.data;
+      if (msg?.type !== 'filter-sync') return;
+      if (String(msg.jobId) !== String(currentJobId)) return;
+
+      // Update sort
+      if (msg.previewSortMode && msg.previewSortMode !== viewerSortMode) {
+        viewerSortMode = msg.previewSortMode;
+        syncSortControl();
+      }
+      // Update filter (skip if sort-only change)
+      if (!msg.sortOnly) {
+        const newFilter = msg.filter ? serverFilterToViewerFormat(msg.filter) : null;
+        filterState = newFilter || {
+          name: '', classMode: 'any', classLogic: 'any',
+          selectedClasses: new Set(), minLabels: 0, maxLabels: null, overlayFilteredOnly: true
+        };
+        syncFilterControls();
+        buildFilterPanel();
+      }
+      imageList = allImageList.filter(p => matchesFilter(p));
+      sortViewerImages();
+      renderGrid();
+      updateFilterStats();
+    };
+  } catch { /* BroadcastChannel not supported */ }
+}
+
+function setSortMode(mode) {
+  viewerSortMode = mode;
+  imageList = allImageList.filter(p => matchesFilter(p));
+  sortViewerImages();
+  renderGrid();
+  updateFilterStats();
+  // Save sort+filter to server (fire-and-forget) and broadcast sort-only change
+  if (currentJobId) {
+    fetch('/api/label-editor/filter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: Number(currentJobId), previewSortMode: viewerSortMode }),
+    }).catch(() => {});
+    broadcastViewerFilterSync(true);
+  } else {
+    saveFilterState();
   }
 }
 
@@ -1195,7 +1370,8 @@ function renderGrid() {
   if (thumbObserver) { thumbObserver.disconnect(); thumbObserver = null; }
   const renderToken = ++gridRenderToken;
   thumbnailProgressTotal = imageList.length;
-  thumbnailProgressDone = new Set();
+  // Pre-populate with already-cached images so progress reflects reality
+  thumbnailProgressDone = new Set(imageList.filter(p => thumbCache[p]));
 
   if (!imageList.length) {
     grid.innerHTML = `<div class="v-empty">${t('editor.filter.noImagesMatchFilter')}</div>`;
@@ -1204,7 +1380,12 @@ function renderGrid() {
     return;
   }
 
-  setLoadProgress(true, t('viewer.status.loadingThumbnails'), 0, thumbnailProgressTotal, false);
+  const initialDone = thumbnailProgressDone.size;
+  if (initialDone >= thumbnailProgressTotal) {
+    setLoadProgress(false);
+  } else {
+    setLoadProgress(true, t('viewer.status.loadingThumbnails'), initialDone, thumbnailProgressTotal, false);
+  }
 
   grid.innerHTML = imageList.map((p, i) => {
     const name = p.split('/').pop();
@@ -1244,7 +1425,7 @@ async function preloadThumbnailsInBackground(renderToken) {
     const p = imageList[idx];
     if (!thumbCache[p]) items.push({ p, idx });
   }
-  if (!items.length) return;
+  if (!items.length) { setLoadProgress(false); return; }
 
   // Split into batches of THUMB_BATCH_SIZE
   const batches = [];

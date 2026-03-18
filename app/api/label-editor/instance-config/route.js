@@ -65,6 +65,9 @@ export const GET = withApiLogging(async (req) => {
       } else {
         const built = buildJobEditorPaths(datasetPath, job, 'images');
         filenames = built.filenames;
+        if (filenames.length === 0) {
+          console.warn(`[instance-config] Job #${job.id} (index ${job.jobIndex}) has no images in range [${job.firstImageName || job.imageStart}–${job.lastImageName || job.imageEnd}]. Images may have been moved or deleted.`);
+        }
         for (const filename of built.filenames) {
           const fullImagePath = path.join(datasetPath, 'images', filename);
           try {
@@ -89,6 +92,7 @@ export const GET = withApiLogging(async (req) => {
         totalImagesInJob: filenames.length,
         images: filenames,
         imageMeta,
+        emptyJob: filenames.length === 0,
         obbMode: dataset.obbMode || 'rectangle',
         labelEditorPreloadCount: CONFIG.labelEditorPreloadCount,
         lastImagePath: userState?.lastImagePath || '',

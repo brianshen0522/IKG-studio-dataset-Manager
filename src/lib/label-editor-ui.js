@@ -304,7 +304,14 @@ function shortcutMatch(e, actionId) {
                         }
                     } else {
                         const err = await cfgResp.json().catch(() => ({}));
-                        showErrorMessage(err.error || 'Failed to load job config');
+                        const status = cfgResp.status;
+                        if (status === 403) {
+                            showErrorMessage('Access denied: this job is not assigned to you. Ask an admin to assign it.');
+                        } else if (status === 404) {
+                            showErrorMessage('Job not found. It may have been deleted.');
+                        } else {
+                            showErrorMessage(err.error || 'Failed to load job config');
+                        }
                         return;
                     }
                 } catch (err) {
@@ -383,6 +390,11 @@ function shortcutMatch(e, actionId) {
 
             if (currentJobId && jobScopedImages.length > 0) {
                 applyScopedImageList(jobScopedImages, jobScopedImageMeta);
+            } else if (currentJobId && jobScopedImages.length === 0) {
+                // Job loaded successfully but has no images — all may have been
+                // moved to duplicate review, or the job boundary images were deleted.
+                showError('No images found in this job. They may have been moved to duplicate review or deleted.');
+                return;
             } else if (folderParam) {
                 // Legacy / dataset-wide mode
                 const loaded = await loadImagesFromFolder();
@@ -422,6 +434,13 @@ function shortcutMatch(e, actionId) {
             preloadAllLabels();
             // Preload all images in batches
             preloadAllImagesInBatches();
+
+            // Clear startImageParam so live filter-sync from viewer doesn't trigger the
+            // init-time "skip filter if start image is excluded" bypass.
+            startImageParam = '';
+
+            // Real-time filter/sort sync with viewer (same job, other tab)
+            setupFilterSyncChannel();
         }
 
         // === FILTER FUNCTIONS ===
@@ -559,6 +578,7 @@ function shortcutMatch(e, actionId) {
             } catch (err) {
                 console.warn('Failed to save filter state:', err);
             }
+            if (currentJobId) broadcastFilterSync(filterState, sortMode);
         }
 
         async function savePreviewSortMode(sortMode) {
@@ -575,6 +595,7 @@ function shortcutMatch(e, actionId) {
             } catch (err) {
                 console.warn('Failed to save preview sort mode:', err);
             }
+            if (currentJobId) broadcastFilterSync(null, sortMode, true);
         }
 
         function applyFilterState(filterState) {
@@ -934,6 +955,21 @@ function shortcutMatch(e, actionId) {
                     console.log(`Filtered ${data.totalCount} images down to ${data.filteredCount} (server-side)`);
                 }
 
+                // If loading saved filter on init and the start image is excluded, skip applying
+                // so the user always lands on the image they clicked in the viewer.
+                // Filter values remain visible in the UI — user can apply them manually.
+                if (isApplyingSavedFilter && startImageParam) {
+                    const startInFiltered = filteredImages.some(
+                        p => p === startImageParam || p.split('/').pop() === startImageParam
+                    );
+                    if (!startInFiltered && allImageList.some(
+                        p => p === startImageParam || p.split('/').pop() === startImageParam
+                    )) {
+                        showStatusMessage('editor.status.ready');
+                        return;
+                    }
+                }
+
                 // Update image list
                 const previousImage = imageList[currentImageIndex];
                 imageList = filteredImages;
@@ -1104,6 +1140,75 @@ function shortcutMatch(e, actionId) {
             clearFilters();
             showStatusMessage('editor.filter.resetAll');
         }
+
+        // === REAL-TIME FILTER SYNC (BroadcastChannel) ===
+
+        let _filterSyncChannel = null;
+        let _filterSyncApplying = false; // prevents echo when applying incoming sync
+
+        function broadcastFilterSync(filter, sortMode, sortOnly = false) {
+            if (!_filterSyncChannel || !currentJobId) return;
+            try {
+                _filterSyncChannel.postMessage({
+                    type: 'filter-sync',
+                    jobId: String(currentJobId),
+                    filter,
+                    previewSortMode: sortMode,
+                    sortOnly,
+                });
+            } catch { /* ignore */ }
+        }
+
+        function setupFilterSyncChannel() {
+            if (!currentJobId) return;
+            try {
+                _filterSyncChannel = new BroadcastChannel('ikg-filter-sync');
+                _filterSyncChannel.onmessage = async (e) => {
+                    const msg = e.data;
+                    if (msg?.type !== 'filter-sync') return;
+                    if (String(msg.jobId) !== String(currentJobId)) return;
+
+                    _filterSyncApplying = true;
+                    isApplyingSavedFilter = true;
+                    try {
+                        if (msg.previewSortMode && msg.previewSortMode !== previewSortMode) {
+                            previewSortMode = msg.previewSortMode;
+                            const sortSelect = document.getElementById('previewSort');
+                            if (sortSelect) sortSelect.value = previewSortMode;
+                            applyPreviewSort(true);
+                        }
+                        if (!msg.sortOnly) {
+                            if (msg.filter) {
+                                applyFilterState(msg.filter);
+                                await applyFilters();
+                            } else {
+                                // Filter cleared in viewer — reset to show all
+                                document.getElementById('filterName').value = '';
+                                document.getElementById('filterClassMode').value = 'any';
+                                document.getElementById('filterClassLogic').value = 'or';
+                                document.getElementById('filterMinLabels').value = '0';
+                                document.getElementById('filterMaxLabels').value = '';
+                                CLASSES.forEach((_, idx) => {
+                                    const cb = document.getElementById(`filter-class-${idx}`);
+                                    if (cb) cb.checked = false;
+                                });
+                                updateSelectedClassChips();
+                                await applyFilters();
+                            }
+                        } else {
+                            // Sort-only change — just refresh navigation/preview
+                            updateNavigationButtons();
+                            updateImagePreview(true);
+                        }
+                    } finally {
+                        isApplyingSavedFilter = false;
+                        _filterSyncApplying = false;
+                    }
+                };
+            } catch { /* BroadcastChannel not supported */ }
+        }
+
+        // === END REAL-TIME FILTER SYNC ===
 
         // === END FILTER FUNCTIONS ===
 

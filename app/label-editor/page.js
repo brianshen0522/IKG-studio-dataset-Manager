@@ -8,6 +8,7 @@ export default function LabelEditorPage() {
   const apiRef = useRef(null);
   const { t, isReady } = useTranslation();
   const [accessState, setAccessState] = useState('checking'); // 'checking' | 'ok' | 'forbidden'
+  const [viewerUrl, setViewerUrl] = useState('');
 
   useEffect(() => {
     if (!isReady) return;
@@ -16,10 +17,13 @@ export default function LabelEditorPage() {
     const jobId = params.get('jobId');
     const datasetId = params.get('datasetId');
 
+    const view = params.get('view') || '';
     let configUrl = null;
     if (jobId) {
-      const view = params.get('view') || '';
       configUrl = `/api/label-editor/instance-config?jobId=${encodeURIComponent(jobId)}${view ? `&view=${encodeURIComponent(view)}` : ''}`;
+      const viewParams = new URLSearchParams({ jobId });
+      if (view) viewParams.set('view', view);
+      setViewerUrl(`/viewer?${viewParams.toString()}`);
     } else if (datasetId) {
       configUrl = `/api/label-editor/instance-config?datasetId=${encodeURIComponent(datasetId)}`;
     }
@@ -106,7 +110,20 @@ export default function LabelEditorPage() {
   return (
     <>
       <div className="header">
-        <h1>{t('editor.title')}</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <h1>{t('editor.title')}</h1>
+          {viewerUrl && (
+            <a
+              href={viewerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-secondary"
+              style={{ fontSize: '12px', padding: '4px 10px', textDecoration: 'none', whiteSpace: 'nowrap' }}
+            >
+              {t('manager.openViewer') || 'Open Viewer'}
+            </a>
+          )}
+        </div>
         <div className="header-actions">
           <button className="btn btn-secondary" id="prevBtn" onClick={() => callApi('previousImage')}>
             {t('editor.previous')}
