@@ -4,7 +4,8 @@ import crypto from 'crypto';
 
 /**
  * Compute a deterministic metadata hash of all files under dirPath.
- * Uses filename (relative), size, and mtime — fast, no file content read.
+ * Uses filename (relative) and size only — no mtime, so it works correctly
+ * across filesystems with different mtime precision (e.g. NAS/NFS mounts).
  * Returns hex string, or empty string if dir doesn't exist.
  */
 export function computeMetadataHash(dirPath) {
@@ -17,7 +18,7 @@ export function computeMetadataHashWithCount(dirPath) {
   collectFiles(dirPath, dirPath, files);
   files.sort((a, b) => a.rel.localeCompare(b.rel));
   for (const { rel, stat } of files) {
-    hash.update(`${rel}\0${stat.size}\0${stat.mtimeMs}\n`);
+    hash.update(`${rel}\0${stat.size}\n`);
   }
   return { hash: hash.digest('hex'), count: files.length };
 }
