@@ -322,6 +322,16 @@
       "loadingImages": "Loading image list...",
       "loadingLabels": "Loading labels...",
       "loadingThumbnails": "Loading thumbnails..."
+    },
+    "jobsList": "Jobs in Dataset",
+    "loadingJobs": "Loading…",
+    "noJobs": "No jobs",
+    "jobsLoadError": "Failed to load jobs",
+    "jobStatus": {
+      "unassigned": "Unassigned",
+      "unlabelled": "Unlabelled",
+      "labeling": "Labeling",
+      "labelled": "Labelled"
     }
   }
 }

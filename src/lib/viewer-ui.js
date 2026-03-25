@@ -175,6 +175,7 @@ async function resolveJob(jobId) {
   await loadViewerClasses();
   setupViewerSyncChannel();
   buildShell();
+  loadJobsList();
 }
 
 async function resolveDataset(datasetId) {
@@ -198,6 +199,7 @@ async function resolveDataset(datasetId) {
 
   await loadViewerClasses();
   buildShell();
+  loadJobsList();
 }
 
 export function refreshViewerLocale() {
@@ -768,6 +770,69 @@ function buildShell() {
   }
   .v-status.err { color: #dc3545; }
 
+  .v-jobs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .v-job-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    background: #252525;
+    cursor: pointer;
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+    min-width: 0;
+  }
+
+  .v-job-item:hover { background: #2e2e2e; border-color: var(--v-border-input); }
+
+  .v-job-item.active {
+    background: #1a2a3a;
+    border-color: var(--v-accent);
+  }
+
+  .v-job-item-num {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--v-text);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .v-job-item-user {
+    font-size: 11px;
+    color: var(--v-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .v-job-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-weight: 600;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .v-job-badge.unassigned { background: #333; color: #888; }
+  .v-job-badge.unlabelled { background: #1e3a5f; color: #6ab0f5; }
+  .v-job-badge.labeling   { background: #3a2e00; color: #f0c040; }
+  .v-job-badge.labelled   { background: #1a3a1a; color: #5dbb5d; }
+
   @media (max-width: 980px) {
     .v-body { flex-direction: column; }
     .v-sidebar {
@@ -942,6 +1007,12 @@ function buildShell() {
       <button class="vbtn vbtn-sec" onclick="vClear()" style="width:100%;font-size:12px;padding:8px">${t('editor.filter.clearAll')}</button>
       <div class="v-fstats" id="vFStats"></div>
     </div>
+    ${currentDatasetId ? `
+    <div class="v-section">
+      <div class="v-flabel" style="margin-bottom:8px">${t('viewer.jobsList') || 'Jobs in Dataset'}</div>
+      <div class="v-jobs-list" id="vJobsList"><div style="color:#555;font-size:12px">${t('viewer.loadingJobs') || 'Loading…'}</div></div>
+    </div>
+    ` : ''}
   </div>
   <div class="v-main">
     <div class="v-toolbar">
@@ -1029,6 +1100,41 @@ function buildShell() {
   window.vLbNav = lightboxNav;
   if (canOpenEditor) window.vLbEdit = () => openImage(imageList[lightboxIndex]);
   window.vLbBboxDraw = drawLightboxBboxes;
+}
+
+// ── Jobs List Panel ───────────────────────────────────────────────────────────
+async function loadJobsList() {
+  const listEl = document.getElementById('vJobsList');
+  if (!listEl || !currentDatasetId) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(currentDatasetId)}/jobs`);
+    if (!res.ok) {
+      listEl.innerHTML = `<div style="color:#555;font-size:12px">${t('viewer.jobsLoadError') || 'Failed to load jobs'}</div>`;
+      return;
+    }
+    const data = await res.json();
+    const jobs = data.jobs || [];
+    if (!jobs.length) {
+      listEl.innerHTML = `<div style="color:#555;font-size:12px">${t('viewer.noJobs') || 'No jobs'}</div>`;
+      return;
+    }
+
+    listEl.innerHTML = jobs.map(job => {
+      const isActive = String(job.id) === String(currentJobId);
+      const url = `/viewer?jobId=${encodeURIComponent(job.id)}`;
+      const userText = job.assignedToUsername ? escHtml(job.assignedToUsername) : '';
+      const badgeClass = `v-job-badge ${job.status}`;
+      const statusLabel = t(`viewer.jobStatus.${job.status}`) || job.status;
+      return `<a class="v-job-item${isActive ? ' active' : ''}" href="${url}">
+        <span class="v-job-item-num">Job #${job.jobIndex + 1}</span>
+        <span class="v-job-item-user">${userText}</span>
+        <span class="${badgeClass}">${escHtml(statusLabel)}</span>
+      </a>`;
+    }).join('');
+  } catch {
+    listEl.innerHTML = `<div style="color:#555;font-size:12px">${t('viewer.jobsLoadError') || 'Failed to load jobs'}</div>`;
+  }
 }
 
 // ── Filter Panel ─────────────────────────────────────────────────────────────

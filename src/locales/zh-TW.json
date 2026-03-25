@@ -322,6 +322,16 @@
       "loadingImages": "載入圖片清單...",
       "loadingLabels": "載入標籤...",
       "loadingThumbnails": "載入縮圖..."
+    },
+    "jobsList": "此資料集的工作",
+    "loadingJobs": "載入中…",
+    "noJobs": "沒有工作",
+    "jobsLoadError": "載入工作失敗",
+    "jobStatus": {
+      "unassigned": "未分配",
+      "unlabelled": "未標記",
+      "labeling": "標記中",
+      "labelled": "已標記"
     }
   }
 }
