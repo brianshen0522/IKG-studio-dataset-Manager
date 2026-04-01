@@ -1632,7 +1632,7 @@ const styles = {
     color: '#3a4f70',
   },
   jobCardStats: {
-    display: 'flex', gap: '10px', marginTop: '2px',
+    display: 'flex', alignItems: 'center', gap: '10px', marginTop: '2px',
   },
   jobStatButton: {
     background: 'transparent',
@@ -1640,12 +1640,16 @@ const styles = {
     cursor: 'pointer',
     padding: 0,
     font: 'inherit',
+    display: 'inline-flex',
+    alignItems: 'center',
+    lineHeight: 1,
+    verticalAlign: 'middle',
   },
   jobStatEdited: {
-    fontSize: '11px', fontWeight: 700, color: '#f1b11a',
+    fontSize: '11px', fontWeight: 700, color: '#f1b11a', lineHeight: 1,
   },
   jobStatDeleted: {
-    fontSize: '11px', fontWeight: 700, color: '#d24343',
+    fontSize: '11px', fontWeight: 700, color: '#d24343', lineHeight: 1,
   },
   jobCardRight: {
     display: 'flex',

@@ -88,6 +88,7 @@ function shortcutMatch(e, actionId) {
         let previewSearchDebounceTimer = null;
         let filterBaseList = []; // List after main filter (before preview search)
         let isCreatingObb = false;
+        let obbStart = null;
         let obbCreatePoints = [];
         let obbPreviewPoint = null;
         let isCreatingTwoPoint = false; // For 2-point rectangle creation
@@ -1525,6 +1526,7 @@ function shortcutMatch(e, actionId) {
         }
 
         function drawPreviewAnnotations(canvas, img, imagePath) {
+            if (!canvas || !img) return;
             const pCtx = canvas.getContext('2d');
             const cw = canvas.width;
             const ch = canvas.height;
@@ -2293,11 +2295,45 @@ function shortcutMatch(e, actionId) {
             });
         }
 
+        function resetInteractionState({ clearSelection = true } = {}) {
+            isRotating = false;
+            rotateState = null;
+            isGroupRotating = false;
+            groupRotateState = null;
+            isDragging = false;
+            dragHandle = null;
+            resizeStart = null;
+            isMoving = false;
+            moveStart = null;
+            moveMoved = false;
+            isDrawing = false;
+            isCreatingObb = false;
+            obbStart = null;
+            obbPreviewPoint = null;
+            isCreatingTwoPoint = false;
+            twoPointFirst = null;
+            twoPointPreview = null;
+            isSelectingBox = false;
+            selectionBoxStart = null;
+            selectionBoxCurrent = null;
+            historySnapshot = null;
+            pendingSelection = null;
+            lastHitIndices = [];
+            lastHitCycle = -1;
+            lastHitPoint = null;
+
+            if (clearSelection) {
+                selectedAnnotation = null;
+                selectedAnnotations = [];
+            }
+        }
+
         async function loadImage(forceReload) {
             try {
                 showStatusMessage('editor.status.loadingImage');
 
                 // Reset UI state
+                resetInteractionState();
                 document.getElementById('errorMessage').style.display = 'none';
                 document.getElementById('loading').style.display = 'block';
                 document.getElementById('canvas').style.display = 'none';
@@ -3437,6 +3473,12 @@ function shortcutMatch(e, actionId) {
             // Check if clicking on a handle
             if (selectedAnnotation !== null && selectedAnnotations.length <= 1) {
                 const ann = annotations[selectedAnnotation];
+                if (!ann) {
+                    resetInteractionState();
+                    updateUI();
+                    draw();
+                    return;
+                }
                 const handle = getHandleAt(ann, x, y);
                 if (handle) {
                     historySnapshot = captureState();
@@ -3688,6 +3730,7 @@ function shortcutMatch(e, actionId) {
                 selectedAnnotations.forEach((idx, i) => {
                     const ann = annotations[idx];
                     const original = groupRotateState.annotations[i];
+                    if (!ann || !original) return;
                     if (ann.type === 'obb' && original.type === 'obb') {
                         ann.points = rotatePoints(original.points, centerNorm, delta);
                     } else if (original.type === 'bbox') {
@@ -3701,6 +3744,11 @@ function shortcutMatch(e, actionId) {
                 draw();
             } else if (isRotating && selectedAnnotation !== null && rotateState) {
                 const ann = annotations[selectedAnnotation];
+                if (!ann) {
+                    resetInteractionState();
+                    draw();
+                    return;
+                }
                 const angle = Math.atan2(y - rotateState.center.y, x - rotateState.center.x);
                 const delta = angle - rotateState.startAngle;
                 const centerNorm = { x: rotateState.center.x / image.width, y: rotateState.center.y / image.height };
@@ -3713,6 +3761,11 @@ function shortcutMatch(e, actionId) {
                 } else if (selectedAnnotation !== null) {
                     // Single annotation resize
                     const ann = annotations[selectedAnnotation];
+                    if (!ann) {
+                        resetInteractionState();
+                        draw();
+                        return;
+                    }
                     resizeAnnotation(ann, dragHandle, x, y);
                 }
                 draw();
@@ -3729,6 +3782,7 @@ function shortcutMatch(e, actionId) {
                     selectedAnnotations.forEach((idx, i) => {
                         const ann = annotations[idx];
                         const original = moveStart.annotations[i];
+                        if (!ann || !original) return;
 
                         if (ann.type === 'obb') {
                             ann.points = original.points.map(p => ({
@@ -3745,6 +3799,11 @@ function shortcutMatch(e, actionId) {
                     const deltaX = dx / image.width;
                     const deltaY = dy / image.height;
                     const ann = annotations[selectedAnnotation];
+                    if (!ann || !moveStart.ann) {
+                        resetInteractionState();
+                        draw();
+                        return;
+                    }
                     if (ann.type === 'obb') {
                         ann.points = moveStart.ann.points.map(p => ({
                             x: p.x + deltaX,
@@ -5294,6 +5353,7 @@ function shortcutMatch(e, actionId) {
             if (statusBar) statusBar.textContent = t('editor.selectMode.deleting', { count: String(count) });
 
             try {
+                resetInteractionState();
                 const res = await fetch('/api/label-editor/delete-images', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
