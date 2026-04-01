@@ -1127,7 +1127,7 @@ async function loadJobsList() {
       const badgeClass = `v-job-badge ${job.status}`;
       const statusLabel = t(`viewer.jobStatus.${job.status}`) || job.status;
       return `<a class="v-job-item${isActive ? ' active' : ''}" href="${url}">
-        <span class="v-job-item-num">Job #${job.jobIndex + 1}</span>
+        <span class="v-job-item-num">Job #${job.jobIndex}</span>
         <span class="v-job-item-user">${userText}</span>
         <span class="${badgeClass}">${escHtml(statusLabel)}</span>
       </a>`;
