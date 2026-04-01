@@ -598,6 +598,144 @@ function AddDatasetModal({ onClose, onCreated }) {
   );
 }
 
+function BulkMoveModal({ datasets, onClose, onDone }) {
+  const [force, setForce] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState(null); // null = not submitted yet
+
+  const hasIncomplete = datasets.some(
+    (d) => (d.totalJobs ?? 0) > 0 && (d.labelledJobs ?? 0) !== (d.totalJobs ?? 0)
+  );
+
+  async function handleConfirm() {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/datasets/bulk-move-to-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: datasets.map((d) => d.id), force }),
+      });
+      const data = await res.json();
+      setResults(data.results || []);
+    } catch {
+      setResults(datasets.map((d) => ({ id: d.id, ok: false, error: 'Network error', name: d.displayName })));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const succeeded = results ? results.filter((r) => r.ok) : [];
+  const failed = results ? results.filter((r) => !r.ok) : [];
+
+  return (
+    <div style={styles.modalOverlay} onClick={results ? undefined : onClose}>
+      <div style={{ ...styles.modal, maxWidth: '520px', maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.modalHeader}>
+          <h2 style={styles.modalTitle}>Move to Done</h2>
+          <button style={styles.closeBtn} onClick={results ? onDone : onClose}>×</button>
+        </div>
+
+        {!results ? (
+          <>
+            <p style={{ color: '#9ba9c3', fontSize: '13px', marginBottom: '16px' }}>
+              Move {datasets.length} dataset{datasets.length !== 1 ? 's' : ''} to the check path via rsync. Source files will be deleted after verification.
+            </p>
+
+            {/* Dataset list */}
+            <div style={{ border: '1px solid #25344d', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}>
+              {datasets.map((d, i) => {
+                const allDone = (d.totalJobs ?? 0) > 0 && (d.labelledJobs ?? 0) === (d.totalJobs ?? 0);
+                return (
+                  <div key={d.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '9px 14px', gap: '8px',
+                    borderBottom: i < datasets.length - 1 ? '1px solid #1b2940' : 'none',
+                    background: i % 2 === 0 ? 'transparent' : '#0d162622',
+                  }}>
+                    <span style={{ fontSize: '13px', color: '#e6edf7', fontWeight: 600, flex: 1, wordBreak: 'break-all' }}>
+                      {d.displayName || d.datasetPath.split('/').pop()}
+                    </span>
+                    {!allDone && (d.totalJobs ?? 0) > 0 && (
+                      <span style={{ fontSize: '11px', color: '#f1b11a', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        {d.labelledJobs ?? 0}/{d.totalJobs} done
+                      </span>
+                    )}
+                    {allDone && (
+                      <span style={{ fontSize: '11px', color: '#20c25a', whiteSpace: 'nowrap', flexShrink: 0 }}>All done</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {hasIncomplete && (
+              <div style={{ background: 'rgba(241,177,26,0.08)', border: '1px solid rgba(241,177,26,0.25)', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px' }}>
+                <p style={{ color: '#f1b11a', fontSize: '13px', fontWeight: 600, margin: '0 0 8px' }}>
+                  Some datasets have incomplete jobs.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={force}
+                    onChange={(e) => setForce(e.target.checked)}
+                    style={styles.checkbox}
+                  />
+                  <span style={{ fontSize: '13px', color: '#e6edf7' }}>Force move anyway</span>
+                </label>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button style={styles.cancelBtn} onClick={onClose}>Cancel</button>
+              <button
+                style={{ ...styles.submitBtn, marginTop: 0, padding: '10px 20px', opacity: (hasIncomplete && !force) ? 0.5 : 1 }}
+                disabled={loading || (hasIncomplete && !force)}
+                onClick={handleConfirm}
+              >
+                {loading ? 'Starting…' : `Move ${datasets.length} Dataset${datasets.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p style={{ color: '#9ba9c3', fontSize: '13px', marginBottom: '16px' }}>
+              Move jobs have been queued. They will run in the background.
+            </p>
+            {succeeded.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                <p style={{ fontSize: '12px', fontWeight: 700, color: '#20c25a', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Queued ({succeeded.length})
+                </p>
+                {succeeded.map((r) => (
+                  <div key={r.id} style={{ fontSize: '13px', color: '#e6edf7', padding: '4px 0' }}>
+                    {r.name || `Dataset #${r.id}`}
+                  </div>
+                ))}
+              </div>
+            )}
+            {failed.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                <p style={{ fontSize: '12px', fontWeight: 700, color: '#d24343', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Failed ({failed.length})
+                </p>
+                {failed.map((r) => (
+                  <div key={r.id} style={{ fontSize: '13px', padding: '4px 0' }}>
+                    <span style={{ color: '#e6edf7' }}>{r.name || `Dataset #${r.id}`}</span>
+                    <span style={{ color: '#f87171', marginLeft: '8px', fontSize: '12px' }}>{r.error}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button style={styles.confirmDoneBtn} onClick={onDone}>Done</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MarkDoneConfirmModal({ onConfirm, onClose }) {
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
@@ -628,9 +766,38 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('datasets');
 
+  // Multi-select state
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkMove, setShowBulkMove] = useState(false);
+
   const isAdmin = user?.role === 'admin';
   const isDM = user?.role === 'data-manager';
   const isAdminOrDM = isAdmin || isDM;
+
+  function toggleSelectMode() {
+    setSelectMode((v) => !v);
+    setSelectedIds(new Set());
+  }
+
+  function toggleSelectId(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    const movable = datasets.filter(
+      (d) => d.typeId && !['pending', 'moving', 'verifying'].includes(d.moveStatus)
+    );
+    setSelectedIds(new Set(movable.map((d) => d.id)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
 
   function openInNewTab(path) {
     if (typeof window === 'undefined') return;
@@ -741,7 +908,23 @@ export default function DashboardPage() {
                   <h1 style={styles.h1}>Datasets</h1>
                   <p style={styles.subtitle}>{datasets.length} dataset{datasets.length !== 1 ? 's' : ''}</p>
                 </div>
-                <button style={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add Dataset</button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {selectMode && datasets.length > 0 && (
+                    <button
+                      style={styles.secondaryBtn}
+                      onClick={selectedIds.size === 0 ? selectAll : deselectAll}
+                    >
+                      {selectedIds.size === 0 ? 'Select All' : 'Deselect All'}
+                    </button>
+                  )}
+                  <button
+                    style={{ ...styles.secondaryBtn, ...(selectMode ? { borderColor: '#e45d25', color: '#e45d25' } : {}) }}
+                    onClick={toggleSelectMode}
+                  >
+                    {selectMode ? 'Cancel' : 'Select'}
+                  </button>
+                  <button style={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add Dataset</button>
+                </div>
               </div>
 
               {error && <p style={styles.errorMsg}>{error}</p>}
@@ -757,18 +940,49 @@ export default function DashboardPage() {
                     const dsJobs = jobs[d.id];
                     const scanning = !!d.hasRunningTask;
                     const moveColor = MOVE_STATUS_COLOR[d.moveStatus];
+                    const isSelected = selectedIds.has(d.id);
+                    const isMoving = ['pending', 'moving', 'verifying'].includes(d.moveStatus);
+                    const selectable = selectMode && d.typeId && !isMoving;
                     return (
                       <div
                         key={d.id}
-                        style={{ ...styles.card, ...(scanning ? styles.cardScanning : {}) }}
-                        onClick={() => router.push(`/datasets/${d.id}`)}
+                        style={{
+                          ...styles.card,
+                          ...(scanning ? styles.cardScanning : {}),
+                          ...(isSelected ? styles.cardSelected : {}),
+                          ...(selectMode && !selectable ? { opacity: 0.45 } : {}),
+                        }}
+                        onClick={() => {
+                          if (selectMode) {
+                            if (selectable) toggleSelectId(d.id);
+                          } else {
+                            router.push(`/datasets/${d.id}`);
+                          }
+                        }}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => e.key === 'Enter' && router.push(`/datasets/${d.id}`)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            if (selectMode) { if (selectable) toggleSelectId(d.id); }
+                            else router.push(`/datasets/${d.id}`);
+                          }
+                        }}
                       >
                         <div style={styles.cardHeader}>
-                          <span style={styles.cardName}>{d.displayName || d.datasetPath.split('/').pop()}</span>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                            {selectMode && (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                disabled={!selectable}
+                                onChange={() => { if (selectable) toggleSelectId(d.id); }}
+                                onClick={(e) => e.stopPropagation()}
+                                style={styles.checkbox}
+                              />
+                            )}
+                            <span style={styles.cardName}>{d.displayName || d.datasetPath.split('/').pop()}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
                             {moveColor && (
                               <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: moveColor + '22', color: moveColor, border: `1px solid ${moveColor}44` }}>
                                 {MOVE_STATUS_LABEL[d.moveStatus] || d.moveStatus}
@@ -781,15 +995,17 @@ export default function DashboardPage() {
                           </div>
                         </div>
                         <p style={styles.cardPath}>{d.datasetPath}</p>
-                        <div style={styles.cardActions}>
-                          <button
-                            type="button"
-                            style={styles.secondaryBtn}
-                            onClick={(e) => { e.stopPropagation(); openDatasetViewer(d.id); }}
-                          >
-                            Open Viewer
-                          </button>
-                        </div>
+                        {!selectMode && (
+                          <div style={styles.cardActions}>
+                            <button
+                              type="button"
+                              style={styles.secondaryBtn}
+                              onClick={(e) => { e.stopPropagation(); openDatasetViewer(d.id); }}
+                            >
+                              Open Viewer
+                            </button>
+                          </div>
+                        )}
                         {dsJobs ? (
                           <ProgressBar jobs={dsJobs} />
                         ) : (
@@ -798,6 +1014,21 @@ export default function DashboardPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Floating action bar when items are selected */}
+              {selectMode && selectedIds.size > 0 && (
+                <div style={styles.bulkBar}>
+                  <span style={{ color: '#e6edf7', fontSize: '14px', fontWeight: 600 }}>
+                    {selectedIds.size} dataset{selectedIds.size !== 1 ? 's' : ''} selected
+                  </span>
+                  <button
+                    style={styles.bulkMoveBtn}
+                    onClick={() => setShowBulkMove(true)}
+                  >
+                    Move to Done
+                  </button>
                 </div>
               )}
             </>
@@ -811,6 +1042,18 @@ export default function DashboardPage() {
               setShowAdd(false);
               setDatasets((prev) => [ds, ...prev]);
               loadJobs(ds.id);
+            }}
+          />
+        )}
+
+        {showBulkMove && (
+          <BulkMoveModal
+            datasets={datasets.filter((d) => selectedIds.has(d.id))}
+            onClose={() => setShowBulkMove(false)}
+            onDone={() => {
+              setShowBulkMove(false);
+              setSelectMode(false);
+              setSelectedIds(new Set());
             }}
           />
         )}
@@ -1523,5 +1766,34 @@ const styles = {
     padding: '12px',
     marginTop: '4px',
     transition: 'background 0.15s',
+  },
+  cardSelected: {
+    borderColor: '#e45d25',
+    boxShadow: '0 0 0 2px rgba(228,93,37,0.25)',
+  },
+  bulkBar: {
+    position: 'fixed',
+    bottom: '28px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: '#152033',
+    border: '1px solid #25344d',
+    borderRadius: '12px',
+    padding: '14px 24px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '20px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    zIndex: 500,
+  },
+  bulkMoveBtn: {
+    background: '#20c25a',
+    border: 'none',
+    borderRadius: '8px',
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 700,
+    padding: '9px 20px',
   },
 };
